@@ -694,52 +694,48 @@ def export_material(src_mat, dst_mat, cfg):
                 
                        
 def export_tex(src, dst, cfg):
-    from pathlib import PurePath, Path
-
-    dst.id = cfg.id_of(src)
-    assets_abspath = Path(cfg.assets_path).resolve()
-    img_abspath = Path(src.filepath_from_user()).resolve()
-    try:
-        d_rpath = img_abspath.relative_to(assets_abspath)
-    except ValueError:
-        d_rpath = PurePath("Textures") / PurePath(src.filepath[2:]).name
+    base_name=os.path.splitext(src.name)[0]    
+    ext="."+str(src.file_format).lower()
+    origin_file=src.filepath    
+    output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
+    output_parent=os.path.dirname(output_file)
         
-    d_abspath = (assets_abspath / d_rpath)
-    print("assets_abspath %r <= %r" % (assets_abspath, cfg.assets_path))
-    print("img_abspath %r" % (img_abspath))
-    print("d_rpath %r => d_abspath %r " % (d_rpath, d_abspath))
-    if cfg.need_update(src):
-        if not d_abspath.parent.exists():
-            d_abspath.parent.mkdir(parents=True)
-        #d_abspath = d_abspath.resolve() # resolve failed if file/dir doesn't exists
-        if src.packed_file:
-            with d_abspath.open('wb') as f:
+    is_packed=src.packed_file
+    dst.id = cfg.id_of(src)
+
+    if cfg.need_update(src):       
+    
+        if not os.path.exists(output_parent):
+            os.makedirs(output_parent)
+          
+        if is_packed:
+            print(base_name,"is packed inside the blend file. It will be extracted in",output_file)
+            with open(output_file, 'wb') as f:
                 f.write(src.packed_file.data)
         else:
-            print("no packed texture %r // %r" % (src, img_abspath))
+            print(origin_file,"will be copied in",output_file)
             import shutil
-            if img_abspath.exists():
-                if img_abspath != d_abspath:
-                    shutil.copyfile(str(img_abspath), str(d_abspath))
-            else:
-                cfg.warning("source file not found : %s" % (img_abspath))
+            if origin_file != output_file:
+                shutil.copyfile(origin_file, output_file)            
         
         if cfg.textures_to_dds and DDS_SUPPORT: 
             print("Convert to DDS")
-            
-            d_rel=os.path.splitext(str.join('/',d_rpath.parts))[0]+".dds"
-            d_abs=str.join('/', d_abspath.parts)
-            
-            out_path=os.path.splitext(d_abs)[0]+".dds"
-            print(subprocess.getoutput(IMAGEMAGICK_CONVERT_PATH+"  -format dds -filter Mitchell -define dds:compression=dxt5 -define dds:mipmaps=5 "+d_abs+" "+out_path))
-            os.remove(d_abs)
-            
-            dst.rpath = d_rel
-        else:
-            dst.rpath = str.join('/', d_rpath.parts)     
+              
+            dds_file=os.path.join(cfg.assets_path,"Textures",base_name)+".dds"    
+            command="\
+            "+IMAGEMAGICK_CONVERT_PATH+"\
+             -format dds \
+             -filter Mitchell \
+             -define dds:compression=dxt5 \
+             -define dds:mipmaps=5 \
+             "+output_file+" "+dds_file
+            print("Run",command)
+            print(subprocess.getoutput(command))
+            os.remove(output_file)
+            ext=".dds"
     else:
-        print("no update of %r .. %r" % (dst.id, d_rpath))
-        dst.rpath = str.join('/', d_rpath.parts)     
+        print(base_name,"already up to date")
+    dst.rpath = "Textures/"+base_name+ext
         
     # TODO use md5 (hashlib.md5().update(...)) to name or to check change ??
     # TODO If the texture has a scale and/or offset, then export a coordinate transform.
