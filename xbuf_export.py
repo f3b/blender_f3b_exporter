@@ -27,6 +27,38 @@ import xbuf_ext.animations_kf_pb2
 import xbuf_ext.physics_pb2
 from . import helpers  # pylint: disable=W0406
 import re,os
+import subprocess
+IMAGEMAGICK_CONVERT_PATH="convert"
+
+DDS_SUPPORT=True
+
+if DDS_SUPPORT:
+    out=None
+    
+    try:
+        out = subprocess.getoutput(IMAGEMAGICK_CONVERT_PATH+" -list format")
+    except:
+        pass
+        
+    if not out:
+        print("Executable "+IMAGEMAGICK_CONVERT_PATH+" not found")
+    else:    
+        matched=False
+        rx=re.compile('\s*DDS\*\s*rw.')
+        for l in out.splitlines():
+            if rx.match(l):
+                matched=True
+                break
+            
+        if not matched:
+            print("The installed version of imagemagick doesn't support DDS writing")
+            DDS_SUPPORT=False
+
+if DDS_SUPPORT:
+    print("DDS support is enabled!")
+    
+
+
 
 def cnv_vec3(src, dst):
     # dst = xbuf.math_pb2.Vec3()
@@ -136,12 +168,13 @@ def cnv_color(src, dst):
 
 
 class ExportCfg:
-    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False):
+    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False):
         self.is_preview = is_preview
         self.assets_path = bpy.path.abspath(assets_path)
         self._modified = {}
         self._ids = {}
         self.option_export_selection=option_export_selection
+        self.textures_to_dds=textures_to_dds
 
     def _k_of(self, v):
         # hash(v) or id(v) ?
@@ -690,9 +723,23 @@ def export_tex(src, dst, cfg):
                     shutil.copyfile(str(img_abspath), str(d_abspath))
             else:
                 cfg.warning("source file not found : %s" % (img_abspath))
+        
+        if cfg.textures_to_dds and DDS_SUPPORT: 
+            print("Convert to DDS")
+            
+            d_rel=os.path.splitext(str.join('/',d_rpath.parts))[0]+".dds"
+            d_abs=str.join('/', d_abspath.parts)
+            
+            out_path=os.path.splitext(d_abs)[0]+".dds"
+            print(subprocess.getoutput(IMAGEMAGICK_CONVERT_PATH+"  -format dds -filter Mitchell -define dds:compression=dxt5 -define dds:mipmaps=5 "+d_abs+" "+out_path))
+            os.remove(d_abs)
+            
+            dst.rpath = d_rel
+        else:
+            dst.rpath = str.join('/', d_rpath.parts)     
     else:
         print("no update of %r .. %r" % (dst.id, d_rpath))
-    dst.rpath = str.join('/', d_rpath.parts)     
+        dst.rpath = str.join('/', d_rpath.parts)     
         
     # TODO use md5 (hashlib.md5().update(...)) to name or to check change ??
     # TODO If the texture has a scale and/or offset, then export a coordinate transform.
@@ -1390,7 +1437,11 @@ class xbufExporter(bpy.types.Operator, ExportHelper):
 
     # settings = bpy.props.PointerProperty(type=xbufSettingsScene)
     option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
-
+    if DDS_SUPPORT:
+        option_convert_texture_dds = bpy.props.BoolProperty(name = "Convert textures to dds", description = "", default = True)
+    else: 
+        option_convert_texture_dds=False
+        
     def __init__(self):
         pass
 
@@ -1407,7 +1458,7 @@ class xbufExporter(bpy.types.Operator, ExportHelper):
         # self.frameTime = 1.0 / (scene.render.fps_base * scene.render.fps)
 
         data = xbuf.datas_pb2.Data()
-        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection)
+        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds)
         export(scene, data, cfg)
 
         file = open(self.filepath, "wb")
