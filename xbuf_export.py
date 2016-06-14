@@ -26,7 +26,7 @@ import xbuf_ext.custom_params_pb2
 import xbuf_ext.animations_kf_pb2
 import xbuf_ext.physics_pb2
 from . import helpers  # pylint: disable=W0406
-import re
+import re,os
 
 def cnv_vec3(src, dst):
     # dst = xbuf.math_pb2.Vec3()
@@ -1396,7 +1396,9 @@ class xbufExporter(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         scene = context.scene
-        assets_path = scene.xbuf.assets_path
+       
+        assets_path =   os.path.dirname(self.filepath) #scene.xbuf.assets_path
+        print("Export in", assets_path)
         # originalFrame = scene.frame_current
         # originalSubframe = scene.frame_subframe
         # self.restoreFrame = False
