@@ -608,8 +608,8 @@ def export_texcoords(src_mesh, dst_mesh, material_index):
         dst.floats.values.extend(floats)
 
 
-CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("[^\\[]+\\[([^\\]]+)\\]")
-CYCLES_MAT_INPUT_PATTERN=re.compile("([^;]+)");
+CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("\\!\s*([^;]+)")
+CYCLES_MAT_INPUT_PATTERN=re.compile("\\!\s*([^;]+)");
 def dumpCyclesExportableMats(intree,outarr,parent=None):
     if intree==None: return
     name=intree.name
@@ -635,23 +635,29 @@ def export_material(src_mat, dst_mat, cfg):
         dst_mat.name=src_mat.name
         for input in cycles_mat.inputs:
             input_label=input.name
-            input_label=CYCLES_MAT_INPUT_PATTERN.match(input_label).group(1)
-            input_label=input_label.strip()
-            if len(input.links) > 0: 
-                input_node=input.links[0].from_node
-                input_type=input_node.type
-                if input_type=="RGB" or input_type=="RGBA":
-                    prop=dst_mat.properties.add()
-                    prop.id=input_label
-                    cnv_color(input_node.outputs[0].default_value,prop.color)
-                elif input_type=="VALUE":
-                    prop=dst_mat.properties.add()
-                    prop.id=input_label
-                    prop.value=input_node.outputs[0].default_value
-                elif input_type=="TEX_IMAGE":
-                    prop=dst_mat.properties.add()
-                    prop.id=input_label
-                    export_tex(input_node.image,prop.texture,cfg)
+            input_label=CYCLES_MAT_INPUT_PATTERN.match(input_label)
+            if input_label == None:
+               print("Skip ",input.name)                
+            else:
+                input_label=input_label.group(1)
+                print("Export ",input_label)
+                input_label=input_label.strip()
+                if len(input.links) > 0: 
+                    input_node=input.links[0].from_node
+                    input_type=input_node.type
+                    if input_type=="RGB" or input_type=="RGBA":
+                        prop=dst_mat.properties.add()
+                        prop.id=input_label
+                        cnv_color(input_node.outputs[0].default_value,prop.color)
+                    elif input_type=="VALUE":
+                        prop=dst_mat.properties.add()
+                        prop.id=input_label
+                        prop.value=input_node.outputs[0].default_value
+                    elif input_type=="TEX_IMAGE":
+                        prop=dst_mat.properties.add()
+                        prop.id=input_label
+                        export_tex(input_node.image,prop.texture,cfg)
+             
                 
                        
 def export_tex(src, dst, cfg):
