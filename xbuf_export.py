@@ -136,11 +136,12 @@ def cnv_color(src, dst):
 
 
 class ExportCfg:
-    def __init__(self, is_preview=False, assets_path="/tmp"):
+    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False):
         self.is_preview = is_preview
         self.assets_path = bpy.path.abspath(assets_path)
         self._modified = {}
         self._ids = {}
+        self.option_export_selection=option_export_selection
 
     def _k_of(self, v):
         # hash(v) or id(v) ?
@@ -185,7 +186,7 @@ def export(scene, data, cfg):
 
 def export_all_tobjects(scene, data, cfg):
     for obj in scene.objects:
-        if obj.hide_render:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
             continue
         if cfg.need_update(obj):
             tobject = data.tobjects.add()
@@ -371,7 +372,7 @@ def export_rb(ob, phy_data, data, cfg):
 
 def export_all_geometries(scene, data, cfg):
     for obj in scene.objects:
-        if obj.hide_render:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
             continue
         if obj.type == 'MESH':
             if len(obj.data.polygons) != 0 and cfg.need_update(obj.data):
@@ -394,7 +395,7 @@ def export_all_geometries(scene, data, cfg):
 
 def export_all_materials(scene, data, cfg):
     for obj in scene.objects:
-        if obj.hide_render:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
             continue
         if obj.type == 'MESH':
             for i in range(len(obj.material_slots)):
@@ -406,7 +407,7 @@ def export_all_materials(scene, data, cfg):
 
 def export_all_lights(scene, data, cfg):
     for obj in scene.objects:
-        if obj.hide_render:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
             continue
         if obj.type == 'LAMP':
             src_light = obj.data
@@ -1382,7 +1383,7 @@ class xbufExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".xbuf"
 
     # settings = bpy.props.PointerProperty(type=xbufSettingsScene)
-    # option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
+    option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
 
     def __init__(self):
         pass
@@ -1398,7 +1399,7 @@ class xbufExporter(bpy.types.Operator, ExportHelper):
         # self.frameTime = 1.0 / (scene.render.fps_base * scene.render.fps)
 
         data = xbuf.datas_pb2.Data()
-        cfg = ExportCfg(is_preview=False, assets_path=assets_path)
+        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection)
         export(scene, data, cfg)
 
         file = open(self.filepath, "wb")
