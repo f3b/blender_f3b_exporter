@@ -26,7 +26,7 @@ import xbuf_ext.custom_params_pb2
 import xbuf_ext.animations_kf_pb2
 import xbuf_ext.physics_pb2
 from . import helpers  # pylint: disable=W0406
-
+import re
 
 def cnv_vec3(src, dst):
     # dst = xbuf.math_pb2.Vec3()
@@ -607,69 +607,76 @@ def export_texcoords(src_mesh, dst_mesh, material_index):
         dst.floats.values.extend(floats)
 
 
+CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("[^\\[]+\\[([^\\]]+)\\]")
+CYCLES_MAT_INPUT_PATTERN=re.compile("([^;]+)");
+def dumpCyclesExportableMats(intree,outarr,parent=None):
+    if intree==None: return
+    name=intree.name
+    name_match=CYCLES_EXPORTABLE_MATS_PATTERN.match(name)
+    if name_match!=None and intree!=None:
+        material_path=name_match.group(1)
+        mat=parent
+        outarr.append([material_path,mat])
+    if isinstance(intree, bpy.types.NodeTree):        
+        for node in intree.nodes:
+            dumpCyclesExportableMats(node,outarr,intree) 
+    try:             
+        dumpCyclesExportableMats(intree.node_tree,outarr,intree)
+    except: pass
+    
 def export_material(src_mat, dst_mat, cfg):
     dst_mat.id = cfg.id_of(src_mat)
     dst_mat.name = src_mat.name
-
-    dst_mat.shadeless = src_mat.use_shadeless
-    intensity = src_mat.diffuse_intensity
-    diffuse = [src_mat.diffuse_color[0] * intensity, src_mat.diffuse_color[1] * intensity, src_mat.diffuse_color[2] * intensity]
-
-    cnv_color(diffuse, dst_mat.color)
-
-    intensity = src_mat.specular_intensity
-    specular = [src_mat.specular_color[0] * intensity, src_mat.specular_color[1] * intensity, src_mat.specular_color[2] * intensity]
-
-    if (specular[0] > 0.0) or (specular[1] > 0.0) or (specular[2] > 0.0):
-        cnv_color(specular, dst_mat.specular)
-        dst_mat.specular_power = src_mat.specular_hardness
-
-    emission = src_mat.emit
-    if emission > 0.0:
-        cnv_color([emission, emission, emission], dst_mat.emission)
-
-    # texture = src_mat.active_texture
-    for textureSlot in src_mat.texture_slots:
-        if (textureSlot) and textureSlot.use and (textureSlot.texture.type == "IMAGE") and textureSlot.texture.image and textureSlot.texture.image.source == 'FILE':
-            if textureSlot.use_map_color_diffuse or textureSlot.use_map_diffuse:
-                export_tex(textureSlot, dst_mat.color_map, cfg)
-                print("link mat %r (%r) to tex %r" % (dst_mat.name, dst_mat.id, dst_mat.color_map.id))
-            elif textureSlot.use_map_color_spec or textureSlot.use_map_specular:
-                export_tex(textureSlot, dst_mat.specular_map, cfg)
-            elif textureSlot.use_map_emit:
-                export_tex(textureSlot, dst_mat.emission_map, cfg)
-            elif textureSlot.use_map_translucency:
-                export_tex(textureSlot, dst_mat.opacity_map, cfg)
-            elif textureSlot.use_map_normal:
-                export_tex(textureSlot, dst_mat.normal_map, cfg)
-        else:
-            print("WARNING: unsupported texture %r" % (textureSlot))
-
+    cycles_mat=[]
+    dumpCyclesExportableMats(src_mat.node_tree,cycles_mat)
+    if len(cycles_mat)>0: 
+        dst_mat.mat_id,cycles_mat=cycles_mat[0]
+        dst_mat.name=src_mat.name
+        for input in cycles_mat.inputs:
+            input_label=input.name
+            input_label=CYCLES_MAT_INPUT_PATTERN.match(input_label).group(1)
+            input_label=input_label.strip()
+            if len(input.links) > 0: 
+                input_node=input.links[0].from_node
+                input_type=input_node.type
+                if input_type=="RGB" or input_type=="RGBA":
+                    prop=dst_mat.properties.add()
+                    prop.id=input_label
+                    cnv_color(input_node.outputs[0].default_value,prop.color)
+                elif input_type=="VALUE":
+                    prop=dst_mat.properties.add()
+                    prop.id=input_label
+                    prop.value=input_node.outputs[0].default_value
+                elif input_type=="TEX_IMAGE":
+                    prop=dst_mat.properties.add()
+                    prop.id=input_label
+                    export_tex(input_node.image,prop.texture,cfg)
+                
+                       
 def export_tex(src, dst, cfg):
     from pathlib import PurePath, Path
-    # ispacked = src.texture.image.filepath.startswith('//')
-    ispacked = not not src.texture.image.packed_file
-    dst.id = cfg.id_of(src.texture)
 
+    dst.id = cfg.id_of(src)
     assets_abspath = Path(cfg.assets_path).resolve()
-    img_abspath = Path(src.texture.image.filepath_from_user()).resolve()
+    img_abspath = Path(src.filepath_from_user()).resolve()
     try:
         d_rpath = img_abspath.relative_to(assets_abspath)
     except ValueError:
-        d_rpath = PurePath("Textures") / PurePath(src.texture.image.filepath[2:]).name
+        d_rpath = PurePath("Textures") / PurePath(src.filepath[2:]).name
+        
     d_abspath = (assets_abspath / d_rpath)
     print("assets_abspath %r <= %r" % (assets_abspath, cfg.assets_path))
     print("img_abspath %r" % (img_abspath))
     print("d_rpath %r => d_abspath %r " % (d_rpath, d_abspath))
-    if cfg.need_update(src.texture):
+    if cfg.need_update(src):
         if not d_abspath.parent.exists():
             d_abspath.parent.mkdir(parents=True)
         #d_abspath = d_abspath.resolve() # resolve failed if file/dir doesn't exists
-        if ispacked:
+        if src.packed_file:
             with d_abspath.open('wb') as f:
-                f.write(src.texture.image.packed_file.data)
+                f.write(src.packed_file.data)
         else:
-            print("no packed texture %r // %r" % (src.texture, img_abspath))
+            print("no packed texture %r // %r" % (src, img_abspath))
             import shutil
             if img_abspath.exists():
                 if img_abspath != d_abspath:
@@ -678,7 +685,8 @@ def export_tex(src, dst, cfg):
                 cfg.warning("source file not found : %s" % (img_abspath))
     else:
         print("no update of %r .. %r" % (dst.id, d_rpath))
-    dst.rpath = str.join('/', d_rpath.parts)
+    dst.rpath = str.join('/', d_rpath.parts)     
+        
     # TODO use md5 (hashlib.md5().update(...)) to name or to check change ??
     # TODO If the texture has a scale and/or offset, then export a coordinate transform.
     # uscale = textureSlot.scale[0]
