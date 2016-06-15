@@ -697,6 +697,16 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                 prop.id=input_label
                 cnv_vec3((x,y,z), prop.vec3)
                 print("Found vec3",prop.vec3)
+            elif name == "TRUE":
+                prop=dst_mat.properties.add()
+                prop.id=input_label            
+                prop.value=1
+                print("Found boolean TRUE")
+            elif name == "FALSE":
+                prop.value=0     
+                prop=dst_mat.properties.add()
+                prop.id=input_label     
+                print("Found boolean FALSE")          
             elif name == "Vec2":
                 x,y=input_node.inputs
                 x=x.default_value
