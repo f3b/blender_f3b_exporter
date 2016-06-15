@@ -20,7 +20,7 @@ from xbuf.primitives_pb2 import *
 DESCRIPTOR = _descriptor.FileDescriptor(
   name='xbuf/materials.proto',
   package='xbuf',
-  serialized_pb=_b('\n\x14xbuf/materials.proto\x12\x04xbuf\x1a\x15xbuf/primitives.proto\"d\n\x0bMatProperty\x12\n\n\x02id\x18\x01 \x02(\t\x12\x1a\n\x05\x63olor\x18\x02 \x01(\x0b\x32\x0b.xbuf.Color\x12\x1e\n\x07texture\x18\x03 \x01(\x0b\x32\r.xbuf.Texture\x12\r\n\x05value\x18\x04 \x01(\x01\"[\n\x08Material\x12\n\n\x02id\x18\x01 \x02(\t\x12\x0e\n\x06mat_id\x18\x03 \x01(\t\x12\x0c\n\x04name\x18\x04 \x01(\t\x12%\n\nproperties\x18\x05 \x03(\x0b\x32\x11.xbuf.MatPropertyP\x00')
+  serialized_pb=_b('\n\x14xbuf/materials.proto\x12\x04xbuf\x1a\x15xbuf/primitives.proto\"\x98\x01\n\x0bMatProperty\x12\n\n\x02id\x18\x01 \x02(\t\x12\x1a\n\x05\x63olor\x18\x02 \x01(\x0b\x32\x0b.xbuf.Color\x12\x1e\n\x07texture\x18\x03 \x01(\x0b\x32\r.xbuf.Texture\x12\r\n\x05value\x18\x04 \x01(\x01\x12\x18\n\x04vec2\x18\x05 \x01(\x0b\x32\n.xbuf.Vec2\x12\x18\n\x04vec3\x18\x06 \x01(\x0b\x32\n.xbuf.Vec3\"[\n\x08Material\x12\n\n\x02id\x18\x01 \x02(\t\x12\x0e\n\x06mat_id\x18\x03 \x01(\t\x12\x0c\n\x04name\x18\x04 \x01(\t\x12%\n\nproperties\x18\x05 \x03(\x0b\x32\x11.xbuf.MatPropertyP\x00')
   ,
   dependencies=[xbuf.primitives_pb2.DESCRIPTOR,])
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
@@ -63,6 +63,20 @@ _MATPROPERTY = _descriptor.Descriptor(
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
+    _descriptor.FieldDescriptor(
+      name='vec2', full_name='xbuf.MatProperty.vec2', index=4,
+      number=5, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='vec3', full_name='xbuf.MatProperty.vec3', index=5,
+      number=6, type=11, cpp_type=10, label=1,
+      has_default_value=False, default_value=None,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
   ],
   extensions=[
   ],
@@ -74,8 +88,8 @@ _MATPROPERTY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=53,
-  serialized_end=153,
+  serialized_start=54,
+  serialized_end=206,
 )
 
 
@@ -125,12 +139,14 @@ _MATERIAL = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=155,
-  serialized_end=246,
+  serialized_start=208,
+  serialized_end=299,
 )
 
 _MATPROPERTY.fields_by_name['color'].message_type = xbuf.primitives_pb2._COLOR
 _MATPROPERTY.fields_by_name['texture'].message_type = xbuf.primitives_pb2._TEXTURE
+_MATPROPERTY.fields_by_name['vec2'].message_type = xbuf.primitives_pb2._VEC2
+_MATPROPERTY.fields_by_name['vec3'].message_type = xbuf.primitives_pb2._VEC3
 _MATERIAL.fields_by_name['properties'].message_type = _MATPROPERTY
 DESCRIPTOR.message_types_by_name['MatProperty'] = _MATPROPERTY
 DESCRIPTOR.message_types_by_name['Material'] = _MATERIAL

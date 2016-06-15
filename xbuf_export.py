@@ -69,6 +69,11 @@ def cnv_vec3(src, dst):
     dst.y = src[1]
     dst.z = src[2]
     return dst
+    
+def cnv_vec2(src, dst):
+    dst.x = src[0]
+    dst.y = src[1]
+    return dst
 
 
 def cnv_translation(src, dst):
@@ -643,6 +648,8 @@ def export_texcoords(src_mesh, dst_mesh, material_index):
 
 CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("\\!\s*([^;]+)")
 CYCLES_MAT_INPUT_PATTERN=re.compile("\\!\s*([^;]+)");
+CYCLES_CUSTOM_NODEINPUT_PATTERN=re.compile("([^;]+)");
+
 def dumpCyclesExportableMats(intree,outarr,parent=None):
     if intree==None: return
     name=intree.name
@@ -657,6 +664,58 @@ def dumpCyclesExportableMats(intree,outarr,parent=None):
     try:             
         dumpCyclesExportableMats(intree.node_tree,outarr,intree)
     except: pass
+    
+def parseNode(input_node,input_type,dst_mat,input_label,cfg):                    
+    #input_node=input.links[0].from_node
+    #input_type=input_node.type                    
+    if input_type=="RGB" or input_type=="RGBA":
+        prop=dst_mat.properties.add()
+        prop.id=input_label
+        cnv_color(input_node.outputs[0].default_value,prop.color)
+        print("Found color",prop.color)
+    elif input_type=="VALUE":
+        prop=dst_mat.properties.add()
+        prop.id=input_label
+        prop.value=input_node.outputs[0].default_value
+        print("Found value",prop.value)
+    elif input_type=="TEX_IMAGE":
+        prop=dst_mat.properties.add()
+        prop.id=input_label
+        export_tex(input_node.image,prop.texture,cfg)
+        print("Found texture")
+    elif input_type=="GROUP": # Custom nodes groups as input
+        name=input_node.node_tree.name
+        name=CYCLES_CUSTOM_NODEINPUT_PATTERN.match(name)
+        if name != None:
+            name=name.group(0)
+            if name == "Vec3":
+                x,y,z=input_node.inputs
+                x=x.default_value
+                y=y.default_value
+                z=z.default_value
+                prop=dst_mat.properties.add()
+                prop.id=input_label
+                cnv_vec3((x,y,z), prop.vec3)
+                print("Found vec3",prop.vec3)
+            elif name == "Vec2":
+                x,y=input_node.inputs
+                x=x.default_value
+                y=y.default_value
+                prop=dst_mat.properties.add()
+                prop.id=input_label
+                cnv_vec2((x,y), prop.vec2)
+                print("Found vec2",prop.vec2)
+            elif name == "Preset":
+                for n in input_node.outputs[0].links[0].from_node.node_tree.nodes:
+                    if n.type=="GROUP_OUTPUT":
+                        input_node=n.inputs[0].links[0].from_node
+                        input_type=input_node.type
+                        print("Found preset")
+                        parseNode(input_node,input_type,dst_mat,input_label,cfg)
+                        print("Preset end")
+                        break    
+            else: 
+                print(input_type,"not supported")
     
 def export_material(src_mat, dst_mat, cfg):
     dst_mat.id = cfg.id_of(src_mat)
@@ -677,19 +736,9 @@ def export_material(src_mat, dst_mat, cfg):
                 input_label=input_label.strip()
                 if len(input.links) > 0: 
                     input_node=input.links[0].from_node
-                    input_type=input_node.type
-                    if input_type=="RGB" or input_type=="RGBA":
-                        prop=dst_mat.properties.add()
-                        prop.id=input_label
-                        cnv_color(input_node.outputs[0].default_value,prop.color)
-                    elif input_type=="VALUE":
-                        prop=dst_mat.properties.add()
-                        prop.id=input_label
-                        prop.value=input_node.outputs[0].default_value
-                    elif input_type=="TEX_IMAGE":
-                        prop=dst_mat.properties.add()
-                        prop.id=input_label
-                        export_tex(input_node.image,prop.texture,cfg)
+                    input_type=input_node.type    
+                    parseNode(input_node,input_type,dst_mat,input_label,cfg)
+                
              
                 
                        
