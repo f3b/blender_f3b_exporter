@@ -540,6 +540,17 @@ def export_meshes(src_geometry, meshes, scene, cfg):
         texcoords=[None]*min(9, len(src_mesh.tessface_uv_textures))
         texcoords_ids=[xbuf.datas_pb2.VertexArray.texcoord,xbuf.datas_pb2.VertexArray.texcoord2,xbuf.datas_pb2.VertexArray.texcoord3,xbuf.datas_pb2.VertexArray.texcoord4,xbuf.datas_pb2.VertexArray.texcoord5,xbuf.datas_pb2.VertexArray.texcoord6,xbuf.datas_pb2.VertexArray.texcoord7,xbuf.datas_pb2.VertexArray.texcoord8]
         
+        armature = src_geometry.find_armature()
+        if armature:
+            print("Armature found")
+            boneCount = []
+            boneIndex = []
+            boneWeight = []
+            groupToBoneIndex = make_group_to_bone_index(armature, src_geometry, cfg)
+        else: print("Armature not found")
+       
+  
+        
         for i in range(0,len(texcoords)):
             texcoords[i]=dst_mesh.vertexArrays.add()
             texcoords[i].attrib=texcoords_ids[i]
@@ -577,7 +588,13 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 positions.extend(cnv_toVec3ZupToYup(v.co))
                 normals.extend(cnv_toVec3ZupToYup(v.normal if is_smooth else f.normal))
                 indexes.append(latest_index)
-                index_order_map[latest_index]=v.index
+               
+                iom=index_order_map.get(v.index,None)
+                if iom==None:
+                    iom=[]
+                    index_order_map[v.index]=iom
+                iom.append(latest_index)
+               
                 latest_index+=1                
                 for tx_id in range(0,len(texcoords)):
                     texcoords[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j])
@@ -601,48 +618,41 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 
         tangents_ids=[xbuf.datas_pb2.VertexArray.tangent,xbuf.datas_pb2.VertexArray.tangent2,xbuf.datas_pb2.VertexArray.tangent3,xbuf.datas_pb2.VertexArray.tangent4,xbuf.datas_pb2.VertexArray.tangent5,xbuf.datas_pb2.VertexArray.tangent6,xbuf.datas_pb2.VertexArray.tangent7,xbuf.datas_pb2.VertexArray.tangent8]
         
+        #Find correspondent vertex from loops.
+        ordered_vertfromloop=[0]*latest_index
+        for face in src_mesh.polygons:
+            for vert in [src_mesh.loops[i] for i in face.loop_indices]:
+                i=vert.index
+                iom=index_order_map.get(i,None)
+                if iom!=None:
+                    for ni in iom:
+                        ordered_vertfromloop[ni]=vert
+
+        #Tangents
         for k in range(0, len(src_mesh.tessface_uv_textures)):
             src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
             tangents = dst_mesh.vertexArrays.add()
             tangents.attrib = tangents_ids[k]
             tangents.floats.step = 4
             tangents=tangents.floats.values      
-              
-            #Ensure the order is the same as before, this may be unnecessary
-            ordered_vertfromloop=[0]*len(index_order_map)
-            for face in src_mesh.polygons:
-                for vert in [src_mesh.loops[i] for i in face.loop_indices]:
-                    i=vert.index
-                    for ni in index_order_map:
-                        oi=index_order_map[ni]
-                        if oi==i:
-                            ordered_vertfromloop[ni]=vert
             for vert in ordered_vertfromloop:
                 tan=cnv_toVec3ZupToYup(vert.tangent)
                 btan=cnv_toVec3ZupToYup(vert.bitangent)
                 tangents.extend(tan)           
                 tangents.append(-1 if dot_vec3(cross_vec3( vert.normal, tan),btan) < 0  else 1)
-
+               
+        #Vertloop        
+        for vert in ordered_vertfromloop:
+            #Bone weights    
+            if armature: 
+                find_influence(src_mesh.vertices, vert.index, groupToBoneIndex, boneCount, boneIndex, boneWeight)
+                    
+        if armature:
+            dst_skin = dst_mesh.skin
+            dst_skin.boneCount.extend(boneCount)
+            dst_skin.boneIndex.extend(boneIndex)
+            dst_skin.boneWeight.extend(boneWeight)
         
-
-        
-        # unified_vertex_array = unify_vertices(vertex_array, index_table)
-        #export_positions(src_mesh, dst, material_index)
-        #export_normals(src_mesh, dst, material_index)
-        
-        #export_tangents(src_mesh, dst, material_index)
-        #export_index(src_mesh, dst, material_index)
-        #export_colors(src_mesh, dst, material_index)
-        #export_texcoords(src_mesh, dst, material_index)
-
-        # # -- with armature applied
-        # for mod in mod_armature:
-        #     setattr(mod[0], mod_state_attr, True)
-        # src_mesh = src_geometry.to_mesh(scene, True, mode, True, False)
-        # # Restore modifier settings
-        # for mod in mod_armature:
-        #     setattr(mod[0], mod_state_attr, mod[1])
-        export_skin(src_mesh, src_geometry, dst, cfg, material_index)
     return dstMap
 
 
@@ -898,31 +908,6 @@ def export_skeleton(src, dst, cfg):
             rel.ref2 = dst_bone.id
 
 
-def export_skin(src_mesh, src_geometry, dst_mesh, cfg, material_index):
-    armature = src_geometry.find_armature()
-    if not armature:
-        return
-
-    vertices = src_mesh.vertices
-    boneCount = []
-    boneIndex = []
-    boneWeight = []
-    groupToBoneIndex = make_group_to_bone_index(armature, src_geometry, cfg)
-    faces = src_mesh.tessfaces
-
-    for face in faces:
-        if material_index != face.material_index:
-            continue
-        find_influence(vertices, face.vertices[0], groupToBoneIndex, boneCount, boneIndex, boneWeight)
-        find_influence(vertices, face.vertices[1], groupToBoneIndex, boneCount, boneIndex, boneWeight)
-        find_influence(vertices, face.vertices[2], groupToBoneIndex, boneCount, boneIndex, boneWeight)
-        if len(face.vertices) == 4:
-            find_influence(vertices, face.vertices[3], groupToBoneIndex, boneCount, boneIndex, boneWeight)
-
-    dst_skin = dst_mesh.skin
-    dst_skin.boneCount.extend(boneCount)
-    dst_skin.boneIndex.extend(boneIndex)
-    dst_skin.boneWeight.extend(boneWeight)
 
 
 def make_group_to_bone_index(armature, src_geometry, cfg):
