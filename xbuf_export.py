@@ -600,6 +600,7 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 
                 
         tangents_ids=[xbuf.datas_pb2.VertexArray.tangent,xbuf.datas_pb2.VertexArray.tangent2,xbuf.datas_pb2.VertexArray.tangent3,xbuf.datas_pb2.VertexArray.tangent4,xbuf.datas_pb2.VertexArray.tangent5,xbuf.datas_pb2.VertexArray.tangent6,xbuf.datas_pb2.VertexArray.tangent7,xbuf.datas_pb2.VertexArray.tangent8]
+        
         for k in range(0, len(src_mesh.tessface_uv_textures)):
             src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
             tangents = dst_mesh.vertexArrays.add()
@@ -621,9 +622,7 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 btan=cnv_toVec3ZupToYup(vert.bitangent)
                 tangents.extend(tan)           
                 tangents.append(-1 if dot_vec3(cross_vec3( vert.normal, tan),btan) < 0  else 1)
-                         
-        else:
-            print("Can't calculate tangents because there isn't any available UVMAP")
+
         
 
         
