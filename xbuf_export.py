@@ -811,10 +811,11 @@ def export_tex(src, dst, cfg):
             print("Run",command)
             print(subprocess.getoutput(command))
             os.remove(output_file)
-            ext=".dds"
     else:
         print(base_name,"already up to date")
+    if cfg.textures_to_dds and DDS_SUPPORT:  ext=".dds"
     dst.rpath = "Textures/"+base_name+ext
+    print("Set rpath to", dst.rpath)
         
     # TODO use md5 (hashlib.md5().update(...)) to name or to check change ??
     # TODO If the texture has a scale and/or offset, then export a coordinate transform.
