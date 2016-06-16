@@ -58,7 +58,12 @@ if DDS_SUPPORT:
     print("DDS support is enabled!")
     
 
+def cross_vec3(a,b) :
+    return [a[1]*b[2] - a[2]*b[1],a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
 
+
+def dot_vec3(a,b):
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
 def cnv_vec3(src, dst):
     # dst = xbuf.math_pb2.Vec3()
@@ -505,12 +510,131 @@ def export_meshes(src_geometry, meshes, scene, cfg):
         dst.primitive = xbuf.datas_pb2.Mesh.triangles
         dst.id = cfg.id_of(src_mesh) + "_" + str(material_index)
         dst.name = src_geometry.data.name + "_" + str(material_index)
+        dst_mesh=dst
+        
+        positions = dst_mesh.vertexArrays.add()
+        positions.attrib = xbuf.datas_pb2.VertexArray.position
+        positions.floats.step = 3
+        positions=positions.floats.values
+        
+        normals = dst_mesh.vertexArrays.add()
+        normals.attrib = xbuf.datas_pb2.VertexArray.normal
+        normals.floats.step = 3
+        normals=normals.floats.values
+        
+        colors = None
+        face_colors=None
+        if len(src_mesh.tessface_vertex_colors)>=1:
+            face_colors = src_mesh.tessface_vertex_colors.active.data
+            colors = dst_mesh.vertexArrays.add()
+            colors.attrib = xbuf.datas_pb2.VertexArray.color
+            colors.floats.step = 4
+            colors=colors.floats.values
+
+        indexes = dst_mesh.indexArrays.add()
+        indexes.ints.step = 3
+        indexes=indexes.ints.values
+        latest_index=0
+        index_order_map={}
+        
+        texcoords=[None]*min(9, len(src_mesh.tessface_uv_textures))
+        texcoords_ids=[xbuf.datas_pb2.VertexArray.texcoord,xbuf.datas_pb2.VertexArray.texcoord2,xbuf.datas_pb2.VertexArray.texcoord3,xbuf.datas_pb2.VertexArray.texcoord4,xbuf.datas_pb2.VertexArray.texcoord5,xbuf.datas_pb2.VertexArray.texcoord6,xbuf.datas_pb2.VertexArray.texcoord7,xbuf.datas_pb2.VertexArray.texcoord8]
+        
+        for i in range(0,len(texcoords)):
+            texcoords[i]=dst_mesh.vertexArrays.add()
+            texcoords[i].attrib=texcoords_ids[i]
+            texcoords[i].floats.step = 2
+            texcoords[i]=texcoords[i].floats.values
+                 
+           
+        for i,f in enumerate(src_mesh.tessfaces):
+            if material_index != f.material_index:
+                continue
+            is_smooth=f.use_smooth
+            
+            vertices=[]
+            quad_ids=[] 
+            quad_id=0
+            for v in f.vertices:
+                vertices.append(src_mesh.vertices[v])
+                quad_ids.append(quad_id)
+                quad_id+=1
+                
+            if len(vertices)==4: #Quad to tris
+                vertices.append(vertices[0])
+                quad_ids.append(quad_ids[0])
+                vertices.append(vertices[2])
+                quad_ids.append(quad_ids[2])
+                vertices.append(vertices[3])
+                quad_ids.append(quad_ids[3])
+                
+                del vertices[3]
+                del quad_ids[3]
+            
+           
+            for j,v in enumerate(vertices):
+                j=quad_ids[j]
+                positions.extend(cnv_toVec3ZupToYup(v.co))
+                normals.extend(cnv_toVec3ZupToYup(v.normal if is_smooth else f.normal))
+                indexes.append(latest_index)
+                index_order_map[latest_index]=v.index
+                latest_index+=1                
+                for tx_id in range(0,len(texcoords)):
+                    texcoords[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j])
+                             
+            if face_colors!=None and colors!=None:
+                fc = face_colors[f.index]
+                colors.extend(fc.color1)
+                colors.append(1.0)
+                colors.extend(fc.color2)
+                colors.append(1.0)
+                colors.extend(fc.color3)
+                colors.append(1.0)
+                if len(f.vertices) == 4:
+                    colors.extend(fc.color1)
+                    colors.append(1.0)
+                    colors.extend(fc.color3)
+                    colors.append(1.0)
+                    colors.extend(fc.color4)
+                    colors.append(1.0)
+                
+                
+        tangents_ids=[xbuf.datas_pb2.VertexArray.tangent,xbuf.datas_pb2.VertexArray.tangent2,xbuf.datas_pb2.VertexArray.tangent3,xbuf.datas_pb2.VertexArray.tangent4,xbuf.datas_pb2.VertexArray.tangent5,xbuf.datas_pb2.VertexArray.tangent6,xbuf.datas_pb2.VertexArray.tangent7,xbuf.datas_pb2.VertexArray.tangent8]
+        for k in range(0, len(src_mesh.tessface_uv_textures)):
+            src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
+            tangents = dst_mesh.vertexArrays.add()
+            tangents.attrib = tangents_ids[k]
+            tangents.floats.step = 4
+            tangents=tangents.floats.values      
+              
+            #Ensure the order is the same as before, this may be unnecessary
+            ordered_vertfromloop=[0]*len(index_order_map)
+            for face in src_mesh.polygons:
+                for vert in [src_mesh.loops[i] for i in face.loop_indices]:
+                    i=vert.index
+                    for ni in index_order_map:
+                        oi=index_order_map[ni]
+                        if oi==i:
+                            ordered_vertfromloop[ni]=vert
+            for vert in ordered_vertfromloop:
+                tan=cnv_toVec3ZupToYup(vert.tangent)
+                btan=cnv_toVec3ZupToYup(vert.bitangent)
+                tangents.extend(tan)           
+                tangents.append(-1 if dot_vec3(cross_vec3( vert.normal, tan),btan) < 0  else 1)
+                         
+        else:
+            print("Can't calculate tangents because there isn't any available UVMAP")
+        
+
+        
         # unified_vertex_array = unify_vertices(vertex_array, index_table)
-        export_positions(src_mesh, dst, material_index)
-        export_normals(src_mesh, dst, material_index)
-        export_index(src_mesh, dst, material_index)
-        export_colors(src_mesh, dst, material_index)
-        export_texcoords(src_mesh, dst, material_index)
+        #export_positions(src_mesh, dst, material_index)
+        #export_normals(src_mesh, dst, material_index)
+        
+        #export_tangents(src_mesh, dst, material_index)
+        #export_index(src_mesh, dst, material_index)
+        #export_colors(src_mesh, dst, material_index)
+        #export_texcoords(src_mesh, dst, material_index)
 
         # # -- with armature applied
         # for mod in mod_armature:
@@ -531,119 +655,6 @@ def apply_transform(src_geometry):
     bpy.ops.object.visual_transform_apply(override)
     # bpy.ops.object.transform_apply(override, location=True, rotation=True, scale=True)
     # src_geometry.select = False # we're done working on this object
-
-
-def export_positions(src_mesh, dst_mesh, material_index):
-    vertices = src_mesh.vertices
-    dst = dst_mesh.vertexArrays.add()
-    dst.attrib = xbuf.datas_pb2.VertexArray.position
-    dst.floats.step = 3
-    floats = []
-    faces = src_mesh.tessfaces
-    for face in faces:
-        if material_index != face.material_index:
-            continue
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[0]].co))
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[1]].co))
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[2]].co))
-        if len(face.vertices) == 4:
-            floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[3]].co))
-
-    # for v in vertices:
-    #     floats.extend(v.co)
-    dst.floats.values.extend(floats)
-
-
-def export_normals(src_mesh, dst_mesh, material_index):
-    vertices = src_mesh.vertices
-    dst = dst_mesh.vertexArrays.add()
-    dst.attrib = xbuf.datas_pb2.VertexArray.normal
-    dst.floats.step = 3
-    floats = []
-    faces = src_mesh.tessfaces
-    for face in faces:
-        if material_index != face.material_index:
-            continue
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[0]].normal))
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[1]].normal))
-        floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[2]].normal))
-        if len(face.vertices) == 4:
-            floats.extend(cnv_toVec3ZupToYup(vertices[face.vertices[3]].normal))
-    # for v in vertices:
-    #     floats.extend(v.normal)
-    dst.floats.values.extend(floats)
-
-
-def export_index(src_mesh, dst_mesh, material_index):
-    faces = src_mesh.tessfaces
-    dst = dst_mesh.indexArrays.add()
-    dst.ints.step = 3
-    ints = []
-    idx = 0
-    for face in faces:
-        if material_index != face.material_index:
-            continue
-        ints.append(idx)
-        idx += 1
-        ints.append(idx)
-        idx += 1
-        ints.append(idx)
-        idx += 1
-        if len(face.vertices) == 4:
-            ints.append(idx - 3)
-            ints.append(idx - 1)
-            ints.append(idx)
-            idx += 1
-    dst.ints.values.extend(ints)
-
-
-def export_colors(src_mesh, dst_mesh, material_index):
-    colorCount = len(src_mesh.tessface_vertex_colors)
-    if colorCount < 1:
-        return
-    faces = src_mesh.tessfaces
-    face_colors = src_mesh.tessface_vertex_colors.active.data
-    dst = dst_mesh.vertexArrays.add()
-    dst.attrib = xbuf.datas_pb2.VertexArray.color
-    dst.floats.step = 4
-    floats = []
-    for face in faces:
-        if material_index != face.material_index:
-            continue
-        fc = face_colors[face.index]
-        floats.extend(fc.color1)
-        floats.append(1.0)
-        floats.extend(fc.color2)
-        floats.append(1.0)
-        floats.extend(fc.color3)
-        floats.append(1.0)
-        if len(face.vertices) == 4:
-            floats.extend(fc.color4)
-            floats.append(1.0)
-    dst.floats.values.extend(floats)
-
-
-def export_texcoords(src_mesh, dst_mesh, material_index):
-    texcoordCount = len(src_mesh.tessface_uv_textures)
-    if texcoordCount < 1:
-        return
-    faces = src_mesh.tessfaces
-    for uvI in range(min(9, len(src_mesh.tessface_uv_textures))):
-        texcoordFace = src_mesh.tessface_uv_textures[uvI].data
-        dst = dst_mesh.vertexArrays.add()
-        dst.attrib = xbuf.datas_pb2.VertexArray.texcoord + uvI
-        dst.floats.step = 2
-        floats = []
-        for face in faces:
-            if material_index != face.material_index:
-                continue
-            ftc = texcoordFace[face.index]
-            floats.extend(ftc.uv1)
-            floats.extend(ftc.uv2)
-            floats.extend(ftc.uv3)
-            if len(face.vertices) == 4:
-                floats.extend(ftc.uv4)
-        dst.floats.values.extend(floats)
 
 
 CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("\\!\s*([^;]+)")
