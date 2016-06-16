@@ -628,7 +628,7 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                     for ni in iom:
                         ordered_vertfromloop[ni]=vert
 
-        #Tangents
+        #Tangents: Todo take in account flat shading.
         for k in range(0, len(src_mesh.tessface_uv_textures)):
             src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
             tangents = dst_mesh.vertexArrays.add()
