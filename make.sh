@@ -60,7 +60,7 @@ function build {
       clr_green "Build production version"
       latest_version=`curl https://dl.bintray.com/riccardo/f3b/wf/frk/f3b/version.txt`
       clr_green "Use version $latest_version"
-      wget "https://dl.bintray.com/riccardo/f3b/wf/frk/f3b/f3b-$latest_version-python.zip" -O build/tmp/f3b_exporter/libs/f3b.pylib
+      wget "https://dl.bintray.com/riccardo/f3b/wf/frk/f3b/f3b/$latest_version/f3b-$latest_version-python.zip" -O build/tmp/f3b_exporter/libs/f3b.pylib
     fi
     ###
 

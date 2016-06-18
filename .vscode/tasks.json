@@ -1,7 +1,18 @@
 {
-    "version": "0.1.0",
-    "command": "bash",
-    "isShellCommand": true,
-    "args": ["./make.sh","build","dev"],
-    "showOutput": "always"
+     "version": "0.1.0",
+     "command": "bash",
+     "isShellCommand": true,
+     "showOutput": "always",
+     "args": ["./make.sh"],
+     "tasks":[
+        {
+            "taskName":"build",
+            "args": ["dev"],
+             "isBuildCommand": true
+        },
+        {
+            "taskName":"clean",
+            "args": []
+        }
+    ]
 }
