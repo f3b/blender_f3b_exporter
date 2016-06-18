@@ -10,4 +10,12 @@ before_install:
 - sudo apt-get install -y zip wget
 script:
 - ./make.sh build
-
+deploy:
+  file: build/release/f3b_exporter.zip
+  provider: releases
+  skip_cleanup: true
+  overwrite: true
+  on:
+    tags: true
+  api-key:
+    secure: n1ClSM3TmreseACw+ILydsrGJFNAcCrTB02ujBctknjJfVtAtl6zsTIrj/6pvf80tEvXZMl2VbPU71+n8bqqHwtKI1Ncy0CnQtqE+kKuDpHyV5BwX78SO1d0Rs8h1pjjcEJHGPBPMsqxjjx5XVhyMYYzaHrVV8thn9YmlVKnWxweuoeAZ3GdLZK/88hKghbAFulTq6BOv63Fv3vGpr0nI3yw2ei3b2UGm1xNlORGqb+q1pXJpMCSZ0HP/2y93sEExc4pOKCM7SOIC1xwdaFmb0pcJykHuM1YUPsT3Mnz/pQh4xnfg2irQMhOwqeKWGNpwEuVdyyUDMib634GeV1cW4m1tc8VrVKfPssx3aEnXgWGROWuBo6TNmxWbIhhGarcNtbBd9Fvla3+yMpxT9+yHDZUSNUzYFA3or7Dh3QzktTzcAmXIgJETxjaK4ssyPPgSHuG31wITpR3We5vzWq5+imoFUrftHFiCWykgUbF69RqGcNPy9ttiIvykDdAVczTfZ161j5pI4qty7tvMceK67Dq9zHj5vLkUOVpC6gDcXDm3y5qbTtPQh7z4MV1E174aPq00YDAsNryphaShmPHcpo+rXFYSriWzLy0oatW5kLvrVgbjy5P/IpHeXWo5n7TdDFeghrPxcQwhIdlZUHRP0oXLUYO/4/v07WX0aTYZIc=
