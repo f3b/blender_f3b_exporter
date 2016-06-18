@@ -2,6 +2,8 @@
     "python.pythonPath": "/usr/bin/python3",  
     "editor.wrappingIndent": "indent",
     "editor.renderWhitespace": true,
-    "editor.referenceInfos":true
-
+    "editor.referenceInfos":true,
+    "files.exclude": {
+        "build/": true
+    }
 }
