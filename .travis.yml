@@ -1,0 +1,13 @@
+sudo: required
+dist: trusty
+language: java
+os:
+- linux
+notifications:
+  email: true
+before_install:
+- sudo apt-get -qq update
+- sudo apt-get install -y zip wget
+script:
+- ./make.sh build
+
