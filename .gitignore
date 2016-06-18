@@ -1,4 +1,4 @@
-/lib
+/libs
 tmp
 .~*
 
@@ -23,3 +23,4 @@ __pycache__
 
 # crash
 hs_err_pid*.log
+*.blend1
