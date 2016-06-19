@@ -24,6 +24,9 @@ import f3b.custom_params_pb2
 import f3b.animations_kf_pb2
 import f3b.physics_pb2
 from . import helpers  # pylint: disable=W0406
+from .math import *  # pylint: disable=W0406
+from .conversions import *  # pylint: disable=W0406
+
 import re,os
 import subprocess
 IMAGEMAGICK_CONVERT_PATH="convert"
@@ -56,123 +59,6 @@ if DDS_SUPPORT:
     print("DDS support is enabled!")
     
 
-def cross_vec3(a,b) :
-    return [a[1]*b[2] - a[2]*b[1],a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]]
-
-
-def dot_vec3(a,b):
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-
-def cnv_vec3(src, dst):
-    # dst = f3b.math_pb2.Vec3()
-    # dst.x = src.x
-    # dst.y = src.y
-    # dst.z = src.z
-    dst.x = src[0]
-    dst.y = src[1]
-    dst.z = src[2]
-    return dst
-    
-def cnv_vec2(src, dst):
-    dst.x = src[0]
-    dst.y = src[1]
-    return dst
-
-
-def cnv_translation(src, dst):
-    # same as src.rotate(Quaternion((1,1,0,0))) # 90 deg CW axis X
-    # src0 = src.copy()
-    # q = mathutils.Quaternion((-1, 1, 0, 0))
-    # q.normalize()
-    # src0.rotate(q)
-    # dst.x = src0[0]
-    # dst.y = src0[1]
-    # dst.z = src0[2]
-    dst.x = src[0]
-    dst.y = src[2]
-    dst.z = -src[1]
-    return dst
-
-
-def cnv_scale(src, dst):
-    dst.x = src[0]
-    dst.y = src[2]
-    dst.z = src[1]
-    return dst
-
-
-def cnv_toVec3ZupToYup(src):
-    # same as src.rotate(Quaternion((1,1,0,0))) # 90 deg CW axis X
-    # dst = src.copy()
-    # q = mathutils.Quaternion((1, 1, 0, 0))
-    # q.normalize()
-    # dst.rotate(q)
-    dst = [src[0], src[2], -src[1]]
-    return dst
-
-
-def cnv_quatZupToYup(src, dst):
-    # dst = f3b.math_pb2.Quaternion()
-    src0 = src.copy()
-    q = mathutils.Quaternion((-1, 1, 0, 0))
-    q.normalize()
-    src0.rotate(q)
-    # orig = src
-    # src = mathutils.Quaternion((-1, 1, 0, 0))
-    # src.normalize()
-    # src.rotate(orig)
-    dst.w = src0.w  # [0]
-    dst.x = src0.x  # [1]
-    dst.y = src0.y  # [2]
-    dst.z = src0.z  # [3]
-    return dst
-
-
-def cnv_rotation(src, dst):
-    # dst = f3b.math_pb2.Quaternion()
-    dst.w = src.w  # [0]
-    dst.x = src.x  # [1]
-    dst.y = src.z  # [2]
-    dst.z = -src.y  # [3]
-    return dst
-
-
-def cnv_quat(src, dst):
-    # dst = f3b.math_pb2.Quaternion()
-    dst.w = src.w  # [0]
-    dst.x = src.x  # [1]
-    dst.y = src.y  # [2]
-    dst.z = src.z  # [3]
-    return dst
-
-
-def cnv_mat4(src, dst):
-    # dst = f3b.math_pb2.Quaternion()
-    dst.c00 = src[0][0]
-    dst.c10 = src[1][0]
-    dst.c20 = src[2][0]
-    dst.c30 = src[3][0]
-    dst.c01 = src[0][1]
-    dst.c11 = src[1][1]
-    dst.c21 = src[2][1]
-    dst.c31 = src[3][1]
-    dst.c02 = src[0][2]
-    dst.c12 = src[1][2]
-    dst.c22 = src[2][2]
-    dst.c32 = src[3][2]
-    dst.c03 = src[0][3]
-    dst.c13 = src[1][3]
-    dst.c23 = src[2][3]
-    dst.c33 = src[3][3]
-    return dst
-
-
-def cnv_color(src, dst):
-    dst.r = src[0]
-    dst.g = src[1]
-    dst.b = src[2]
-    dst.a = 1.0 if len(src) < 4 else src[3]
-    return dst
 
 
 class ExportCfg:
@@ -233,11 +119,10 @@ def export_all_tobjects(scene, data, cfg):
             tobject = data.tobjects.add()
             tobject.id = cfg.id_of(obj)
             tobject.name = obj.name
-            transform = tobject.transform
             loc, quat, scale = obj.matrix_local.decompose()
-            cnv_scale(scale, transform.scale)
+            cnv_scale(scale, tobject.scale)
             # convert zup only for direct child of root (no parent)
-            cnv_translation(loc, transform.translation)
+            cnv_translation(loc, tobject.translation)
             # cnv_scale(helpers.rot_quat(obj), transform.rotation)
             # if obj.type == 'MESH':
             #    cnv_translation(obj.location, transform.translation)
@@ -249,16 +134,16 @@ def export_all_tobjects(scene, data, cfg):
             if obj.type == 'MESH':
                 # cnv_scale(helpers.rot_quat(obj), transform.rotation)
                 # cnv_rotation(helpers.rot_quat(obj), transform.rotation)
-                cnv_rotation(quat, transform.rotation)
+                cnv_rotation(quat, tobject.rotation)
             elif obj.type == 'Armature':
                 # cnv_rotation(helpers.rot_quat(obj), transform.rotation)
-                cnv_rotation(quat, transform.rotation)
+                cnv_rotation(quat, tobject.rotation)
             elif obj.type == 'LAMP':
                 # rot = helpers.z_backward_to_forward(helpers.rot_quat(obj))
                 rot = helpers.z_backward_to_forward(quat)
-                cnv_quatZupToYup(rot, transform.rotation)
+                cnv_quatZupToYup(rot, tobject.rotation)
             else:
-                cnv_rotation(helpers.rot_quat(obj), transform.rotation)
+                cnv_rotation(helpers.rot_quat(obj), tobject.rotation)
             if obj.parent is not None:
                 #    tobject.parentId = cfg.id_of(obj.parent)
                 add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj.parent), f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), cfg)
@@ -689,13 +574,14 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
     if input_type=="RGB" or input_type=="RGBA":
         prop=dst_mat.properties.add()
         prop.id=input_label
-        cnv_color(input_node.outputs[0].default_value,prop.color)
-        print("Found color",prop.color)
-    elif input_type=="VALUE":
-        prop=dst_mat.properties.add()
-        prop.id=input_label
-        prop.value=input_node.outputs[0].default_value
-        print("Found value",prop.value)
+        cnv_color(input_node.outputs[0].default_value,prop.vcolor)
+        print("Found color",prop.vcolor)
+    # Deprecated:  Use custom Fload and Int nodes instead
+    #elif input_type=="VALUE":
+    #    prop=dst_mat.properties.add()
+    #    prop.id=input_label
+    #    prop.value=input_node.outputs[0].default_value
+    #    print("Found value",prop.value)
     elif input_type=="TEX_IMAGE":
         prop=dst_mat.properties.add()
         prop.id=input_label
@@ -705,35 +591,55 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
         name=input_node.node_tree.name
         name=CYCLES_CUSTOM_NODEINPUT_PATTERN.match(name)
         if name != None:
-            name=name.group(0)
-            if name == "Vec3":
+            name=name.group(0).upper()
+            if name == "VEC3":
                 x,y,z=input_node.inputs
                 x=x.default_value
                 y=y.default_value
                 z=z.default_value
                 prop=dst_mat.properties.add()
                 prop.id=input_label
-                cnv_vec3((x,y,z), prop.vec3)
-                print("Found vec3",prop.vec3)
-            elif name == "TRUE":
-                prop=dst_mat.properties.add()
-                prop.id=input_label            
-                prop.value=1
-                print("Found boolean TRUE")
-            elif name == "FALSE":
-                prop.value=0     
-                prop=dst_mat.properties.add()
-                prop.id=input_label     
-                print("Found boolean FALSE")          
-            elif name == "Vec2":
+                cnv_vec3((x,y,z), prop.vvec3)
+                print("Found vec3",prop.vvec3)
+            elif name == "VEC2":
                 x,y=input_node.inputs
                 x=x.default_value
                 y=y.default_value
                 prop=dst_mat.properties.add()
                 prop.id=input_label
-                cnv_vec2((x,y), prop.vec2)
-                print("Found vec2",prop.vec2)
-            elif name == "Preset":
+                cnv_vec2((x,y), prop.vvec2)
+                print("Found vec2",prop.vvec2)
+            elif name == "VEC4" or name == "QTR":
+                x,y,z,w=input_node.inputs
+                x=x.default_value
+                y=y.default_value
+                z=z.default_value
+                w=w.default_value
+                prop=dst_mat.properties.add()
+                prop.id=input_label
+                cnv_vec4((x,y,z,w), prop.vvec4 if name == "QTR" else prop.vqtr)
+                print("Found vec4",prop.vvec4)
+            elif name == "FLOAT":
+                prop=dst_mat.properties.add()
+                prop.id=input_label            
+                prop.vfloat=float(input_node.inputs[0].default_value)
+                print("Found Float",prop.vfloat)
+            elif name == "INT":
+                prop=dst_mat.properties.add()
+                prop.id=input_label            
+                prop.vint=int(input_node.inputs[0].default_value)
+                print("Found Int",prop.vint)
+            elif name == "TRUE":
+                prop=dst_mat.properties.add()
+                prop.id=input_label            
+                prop.vbool=True
+                print("Found boolean TRUE")
+            elif name == "FALSE":
+                prop.vbool=False     
+                prop=dst_mat.properties.add()
+                prop.id=input_label     
+                print("Found boolean FALSE")          
+            elif name == "PRESET":
                 for n in input_node.outputs[0].links[0].from_node.node_tree.nodes:
                     if n.type=="GROUP_OUTPUT":
                         input_node=n.inputs[0].links[0].from_node
@@ -744,6 +650,8 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                         break    
             else: 
                 print(input_type,"not supported")
+    else: 
+        print(input_type,"not supported")
     
 def export_material(src_mat, dst_mat, cfg):
     dst_mat.id = cfg.id_of(src_mat)
@@ -828,7 +736,7 @@ def export_light(src, dst, cfg):
     dst.id = cfg.id_of(src)
     dst.name = src.name
     kind = src.type
-    if kind == 'SUN' or kind == 'AREA':
+    if kind == 'SUN' or kind == 'AREA' or kind == 'HEMI':
         dst.kind = f3b.datas_pb2.Light.directional
     elif kind == 'POINT':
         dst.kind = f3b.datas_pb2.Light.point
@@ -836,32 +744,44 @@ def export_light(src, dst, cfg):
         dst.kind = f3b.datas_pb2.Light.spot
         dst.spot_angle.max = src.spot_size * 0.5
         dst.spot_angle.linear.begin = (1.0 - src.spot_blend)
-    dst.cast_shadow = getattr(src, 'use_shadow', False)
-    cnv_color(src.color, dst.color)
-    dst.intensity = src.energy
-    dst.radial_distance.max = src.distance
-    if hasattr(src, 'falloff_type'):
-        falloff = src.falloff_type
-        if falloff == 'INVERSE_LINEAR':
-            dst.radial_distance.max = src.distance
-            dst.radial_distance.inverse.scale = 1.0
-        elif falloff == 'INVERSE_SQUARE':
-            dst.radial_distance.max = src.distance  # math.sqrt(src.distance)
-            dst.radial_distance.inverse_square.scale = 1.0
-        elif falloff == 'LINEAR_QUADRATIC_WEIGHTED':
-            if src.quadratic_attenuation == 0.0:
+
+    
+    processed=False
+    if src.node_tree!=None and len(src.node_tree.nodes)>0: 
+        for node in src.node_tree.nodes:
+            if node.type == "EMISSION":
+                cnv_color(node.inputs[0].default_value, dst.color)
+                dst.intensity = node.inputs[1].default_value
+                dst.cast_shadow = src.cycles.cast_shadow
+                processed=True                
+                
+    if not processed:         
+        dst.cast_shadow = getattr(src, 'use_shadow', False)
+        cnv_color(src.color, dst.color)
+        dst.intensity = src.energy
+        dst.radial_distance.max = src.distance
+        if hasattr(src, 'falloff_type'):
+            falloff = src.falloff_type
+            if falloff == 'INVERSE_LINEAR':
                 dst.radial_distance.max = src.distance
                 dst.radial_distance.inverse.scale = 1.0
-                dst.radial_distance.inverse.constant = 1.0
-                dst.radial_distance.inverse.linear = src.linear_attenuation
-            else:
-                dst.radial_distance.max = src.distance
+            elif falloff == 'INVERSE_SQUARE':
+                dst.radial_distance.max = src.distance  # math.sqrt(src.distance)
                 dst.radial_distance.inverse_square.scale = 1.0
-                dst.radial_distance.inverse_square.constant = 1.0
-                dst.radial_distance.inverse_square.linear = src.linear_attenuation
-                dst.radial_distance.inverse_square.linear = src.quadratic_attenuation
-    if getattr(src, 'use_sphere', False):
-        dst.radial_distance.linear.end = 1.0
+            elif falloff == 'LINEAR_QUADRATIC_WEIGHTED':
+                if src.quadratic_attenuation == 0.0:
+                    dst.radial_distance.max = src.distance
+                    dst.radial_distance.inverse.scale = 1.0
+                    dst.radial_distance.inverse.constant = 1.0
+                    dst.radial_distance.inverse.linear = src.linear_attenuation
+                else:
+                    dst.radial_distance.max = src.distance
+                    dst.radial_distance.inverse_square.scale = 1.0
+                    dst.radial_distance.inverse_square.constant = 1.0
+                    dst.radial_distance.inverse_square.linear = src.linear_attenuation
+                    dst.radial_distance.inverse_square.linear = src.quadratic_attenuation
+        if getattr(src, 'use_sphere', False):
+            dst.radial_distance.linear.end = 1.0
 
 
 def export_all_skeletons(scene, data, cfg):
@@ -883,7 +803,6 @@ def export_skeleton(src, dst, cfg):
         dst_bone = dst.bones.add()
         dst_bone.id = cfg.id_of(src_bone)
         dst_bone.name = src_bone.name
-        transform = dst_bone.transform
 
         # retreive transform local to parent
         boneMat = src_bone.matrix_local
@@ -895,10 +814,10 @@ def export_skeleton(src, dst, cfg):
         # boneMat = armature.convert_space(pose_bone=src_bone, matrix=src_bone.matrix, from_space='POSE', to_space='LOCAL_WITH_PARENT')
         # loc, quat, sca = boneMat.decompose()
 
-        cnv_scale(sca, transform.scale)
-        cnv_translation(loc, transform.translation)
+        cnv_scale(sca, dst_bone.scale)
+        cnv_translation(loc, dst_bone.translation)
         # cnv_scale(loc, transform.translation)
-        cnv_rotation(quat, transform.rotation)
+        cnv_rotation(quat, dst_bone.rotation)
         # cnv_quatZupToYup(quat, transform.rotation)
         # cnv_quat(quat, transform.rotation)
         if src_bone.parent:
@@ -1467,7 +1386,7 @@ def export_obj_customproperties(src, dst_node, dst_data, cfg):
             elif isinstance(value, mathutils.Vector):
                 cnv_vec3(value, param.vvec3)
             elif isinstance(value, mathutils.Quaternion):
-                cnv_quat(value, param.vquat)
+                cnv_qtr(value, param.vqtr)
         add_relation(dst_data.relations, dst_node, custom_params, cfg)
 
 
