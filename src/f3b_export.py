@@ -619,6 +619,18 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                 prop.id=input_label
                 cnv_vec4((x,y,z,w), prop.vvec4 if name == "QTR" else prop.vqtr)
                 print("Found vec4",prop.vvec4)
+            elif name=="RGBA":
+                r,g,b,a=input_node.inputs
+                
+                r=r.default_value
+                g=r.default_value
+                b=r.default_value
+                a=r.default_value
+                
+                prop=dst_mat.properties.add()
+                prop.id=input_label
+                cnv_color((r,g,b,a),prop.vcolor)
+                print("Found color",prop.vcolor)
             elif name == "FLOAT":
                 prop=dst_mat.properties.add()
                 prop.id=input_label            
