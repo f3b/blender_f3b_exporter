@@ -693,7 +693,9 @@ def export_material(src_mat, dst_mat, cfg):
 def export_tex(src, dst, cfg):
     base_name=os.path.splitext(src.name)[0]    
     ext="."+str(src.file_format).lower()
-    origin_file=src.filepath    
+    origin_file=src.filepath   
+    if origin_file.startswith("//"): 
+        origin_file=bpy.path.abspath("//")+origin_file[2:]
     output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
     output_parent=os.path.dirname(output_file)
         
