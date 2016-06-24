@@ -17,7 +17,7 @@
 
 import mathutils
 import bpy_extras
-
+import math
 import f3b
 import f3b.datas_pb2
 import f3b.custom_params_pb2
@@ -693,9 +693,14 @@ def export_material(src_mat, dst_mat, cfg):
 def export_tex(src, dst, cfg):
     base_name=os.path.splitext(src.name)[0]    
     ext="."+str(src.file_format).lower()
-    origin_file=src.filepath   
+    origin_file=src.filepath 
     if origin_file.startswith("//"): 
-        origin_file=bpy.path.abspath("//")+origin_file[2:]
+        origin_fileA=bpy.path.abspath("//")+origin_file[2:]
+        if not os.path.isfile(origin_fileA): # Hot fix weird issue with paths.
+            print("Path not found, apply hotfix")
+            origin_file=bpy.path.abspath("//")+".."+os.sep+".."+os.sep+origin_file[2:]
+        else: origin_file=origin_fileA
+
     output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
     output_parent=os.path.dirname(output_file)
         
@@ -720,13 +725,14 @@ def export_tex(src, dst, cfg):
         if cfg.textures_to_dds and DDS_SUPPORT: 
             print("Convert to DDS")
               
+            expected_mipmaps= 1 + int(math.ceil(math.log(src.size[0] if src.size[0] >src.size[1] else src.size[1]) / math.log(2)))  
             dds_file=os.path.join(cfg.assets_path,"Textures",base_name)+".dds"    
             command="\
             "+IMAGEMAGICK_CONVERT_PATH+"\
              -format dds \
              -filter Mitchell \
              -define dds:compression=dxt5 \
-             -define dds:mipmaps=5 \
+             -define dds:mipmaps="+str(expected_mipmaps)+" \
              "+output_file+" "+dds_file
             print("Run",command)
             print(subprocess.getoutput(command))
