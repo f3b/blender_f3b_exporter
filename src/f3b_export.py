@@ -440,7 +440,7 @@ def export_meshes(src_geometry, meshes, scene, cfg):
             texcoords[i].floats.step = 2
             texcoords[i]=texcoords[i].floats.values
                  
-           
+        loopsV=[]   
         for i,f in enumerate(src_mesh.tessfaces):
             if material_index != f.material_index:
                 continue
@@ -452,8 +452,7 @@ def export_meshes(src_geometry, meshes, scene, cfg):
             for v in f.vertices:
                 vertices.append(src_mesh.vertices[v])
                 quad_ids.append(quad_id)
-                quad_id+=1
-                
+                quad_id+=1    
             if len(vertices)==4: #Quad to tris
                 vertices.append(vertices[0])
                 quad_ids.append(quad_ids[0])
@@ -465,8 +464,27 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 del vertices[3]
                 del quad_ids[3]
             
-           
+            pf=src_mesh.polygons[f.index]
+            pvertices=[]
+            pquad_ids=[]
+            pquad_id=0
+            for v in range(0,len(pf.loop_indices)):
+                pvertices.append(src_mesh.loops[pf.loop_indices[v]])
+                pquad_ids.append(pquad_id)
+                pquad_id+=1
+            if len(pvertices)==4: #Quad to tris
+                pvertices.append(pvertices[0])
+                pquad_ids.append(pquad_ids[0])
+                pvertices.append(pvertices[2])
+                pquad_ids.append(pquad_ids[2])
+                pvertices.append(pvertices[3])
+                pquad_ids.append(pquad_ids[3])
+                
+                del pvertices[3]
+                del pquad_ids[3]          
+                           
             for j,v in enumerate(vertices):
+                loopsV.append(pvertices[j])
                 j=quad_ids[j]
                 positions.extend(cnv_toVec3ZupToYup(v.co))
                 normals.extend(cnv_toVec3ZupToYup(v.normal if is_smooth else f.normal))
@@ -500,16 +518,6 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                 
                 
         tangents_ids=[f3b.datas_pb2.VertexArray.tangent,f3b.datas_pb2.VertexArray.tangent2,f3b.datas_pb2.VertexArray.tangent3,f3b.datas_pb2.VertexArray.tangent4,f3b.datas_pb2.VertexArray.tangent5,f3b.datas_pb2.VertexArray.tangent6,f3b.datas_pb2.VertexArray.tangent7,f3b.datas_pb2.VertexArray.tangent8]
-        
-        #Find correspondent vertex from loops.
-        ordered_vertfromloop=[0]*latest_index
-        for face in src_mesh.polygons:
-            for vert in [src_mesh.loops[i] for i in face.loop_indices]:
-                i=vert.index
-                iom=index_order_map.get(i,None)
-                if iom!=None:
-                    for ni in iom:
-                        ordered_vertfromloop[ni]=vert
 
         #Tangents: Todo take in account flat shading.
         for k in range(0, len(src_mesh.tessface_uv_textures)):
@@ -518,14 +526,14 @@ def export_meshes(src_geometry, meshes, scene, cfg):
             tangents.attrib = tangents_ids[k]
             tangents.floats.step = 4
             tangents=tangents.floats.values      
-            for vert in ordered_vertfromloop:
+            for vert in loopsV:
                 tan=cnv_toVec3ZupToYup(vert.tangent)
                 btan=cnv_toVec3ZupToYup(vert.bitangent)
                 tangents.extend(tan)           
-                tangents.append(-1 if dot_vec3(cross_vec3( vert.normal, tan),btan) < 0  else 1)
-               
+                tangents.append(-1 if dot_vec3(cross_vec3( cnv_toVec3ZupToYup(vert.normal), tan),btan) < 0  else 1)
+              
         #Vertloop        
-        for vert in ordered_vertfromloop:
+        for vert in loopsV:
             #Bone weights    
             if armature: 
                 find_influence(src_mesh.vertices, vert.index, groupToBoneIndex, boneCount, boneIndex, boneWeight)
