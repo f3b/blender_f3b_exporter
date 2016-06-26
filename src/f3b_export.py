@@ -701,6 +701,10 @@ def export_material(src_mat, dst_mat, cfg):
 def export_tex(src, dst, cfg):
     base_name=os.path.splitext(src.name)[0]    
     ext="."+str(src.file_format).lower()
+    if ext == ".":
+        ext=os.path.splitext(src.filepath_raw)[1]
+    if ext == ".":
+        ext=os.path.splitext(src.name)[1]
     origin_file=src.filepath 
     if origin_file.startswith("//"): 
         origin_fileA=bpy.path.abspath("//")+origin_file[2:]
@@ -730,7 +734,7 @@ def export_tex(src, dst, cfg):
             if origin_file != output_file:
                 shutil.copyfile(origin_file, output_file)            
         
-        if cfg.textures_to_dds and DDS_SUPPORT: 
+        if not ext==".dds" and cfg.textures_to_dds and DDS_SUPPORT: 
             print("Convert to DDS")
               
             expected_mipmaps= 1 + int(math.ceil(math.log(src.size[0] if src.size[0] >src.size[1] else src.size[1]) / math.log(2)))  
