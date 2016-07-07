@@ -62,13 +62,14 @@ if DDS_SUPPORT:
 
 
 class ExportCfg:
-    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False):
+    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False,export_tangents=False):
         self.is_preview = is_preview
         self.assets_path = bpy.path.abspath(assets_path)
         self._modified = {}
         self._ids = {}
         self.option_export_selection=option_export_selection
         self.textures_to_dds=textures_to_dds
+        self.export_tangents=export_tangents
 
     def _k_of(self, v):
         # hash(v) or id(v) ?
@@ -516,22 +517,22 @@ def export_meshes(src_geometry, meshes, scene, cfg):
                     colors.extend(fc.color4)
                     colors.append(1.0)
                 
-                
-        tangents_ids=[f3b.datas_pb2.VertexArray.tangent,f3b.datas_pb2.VertexArray.tangent2,f3b.datas_pb2.VertexArray.tangent3,f3b.datas_pb2.VertexArray.tangent4,f3b.datas_pb2.VertexArray.tangent5,f3b.datas_pb2.VertexArray.tangent6,f3b.datas_pb2.VertexArray.tangent7,f3b.datas_pb2.VertexArray.tangent8]
+        if cfg.export_tangents:       
+            tangents_ids=[f3b.datas_pb2.VertexArray.tangent,f3b.datas_pb2.VertexArray.tangent2,f3b.datas_pb2.VertexArray.tangent3,f3b.datas_pb2.VertexArray.tangent4,f3b.datas_pb2.VertexArray.tangent5,f3b.datas_pb2.VertexArray.tangent6,f3b.datas_pb2.VertexArray.tangent7,f3b.datas_pb2.VertexArray.tangent8]
 
-        #Tangents: Todo take in account flat shading.
-        for k in range(0, len(src_mesh.tessface_uv_textures)):
-            src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
-            tangents = dst_mesh.vertexArrays.add()
-            tangents.attrib = tangents_ids[k]
-            tangents.floats.step = 4
-            tangents=tangents.floats.values      
-            for vert in loopsV:
-                tan=cnv_toVec3ZupToYup(vert.tangent)
-                btan=cnv_toVec3ZupToYup(vert.bitangent)
-                tangents.extend(tan)           
-                tangents.append(-1 if dot_vec3(cross_vec3( cnv_toVec3ZupToYup(vert.normal), tan),btan) < 0  else 1)
-              
+            #Tangents: Todo take in account flat shading.
+            for k in range(0, len(src_mesh.tessface_uv_textures)):
+                src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
+                tangents = dst_mesh.vertexArrays.add()
+                tangents.attrib = tangents_ids[k]
+                tangents.floats.step = 4
+                tangents=tangents.floats.values      
+                for vert in loopsV:
+                    tan=cnv_toVec3ZupToYup(vert.tangent)
+                    btan=cnv_toVec3ZupToYup(vert.bitangent)
+                    tangents.extend(tan)           
+                    tangents.append(-1 if dot_vec3(cross_vec3( cnv_toVec3ZupToYup(vert.normal), tan),btan) < 0  else 1)
+                
         #Vertloop        
         for vert in loopsV:
             #Bone weights    
@@ -1433,6 +1434,8 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
 
     # settings = bpy.props.PointerProperty(type=f3bSettingsScene)
     option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
+    option_export_tangents = bpy.props.BoolProperty(name = "Export Tangents", description = "", default = False)
+
     if DDS_SUPPORT:
         option_convert_texture_dds = bpy.props.BoolProperty(name = "Convert textures to dds", description = "", default = True)
     else: 
@@ -1454,7 +1457,7 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
         # self.frameTime = 1.0 / (scene.render.fps_base * scene.render.fps)
 
         data = f3b.datas_pb2.Data()
-        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds)
+        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds,export_tangents=self.option_export_tangents)
         export(scene, data, cfg)
 
         file = open(self.filepath, "wb")
