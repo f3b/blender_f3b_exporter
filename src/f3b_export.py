@@ -705,13 +705,7 @@ def export_tex(src, dst, cfg):
         ext=os.path.splitext(src.filepath_raw)[1]
     if ext == ".":
         ext=os.path.splitext(src.name)[1]
-    origin_file=src.filepath 
-    if origin_file.startswith("//"): 
-        origin_fileA=bpy.path.abspath("//")+origin_file[2:]
-        if not os.path.isfile(origin_fileA): # Hot fix weird issue with paths.
-            print("Path not found, apply hotfix")
-            origin_file=bpy.path.abspath("//")+".."+os.sep+".."+os.sep+origin_file[2:]
-        else: origin_file=origin_fileA
+    origin_file=bpy.path.abspath(src.filepath_raw)
 
     output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
     output_parent=os.path.dirname(output_file)
