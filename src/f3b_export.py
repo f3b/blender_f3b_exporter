@@ -771,7 +771,7 @@ def export_light(src, dst, cfg):
     if kind == 'SUN' or kind == 'AREA' or kind == 'HEMI':
         dst.kind = f3b.datas_pb2.Light.directional
     elif kind == 'POINT':
-        dst.kind = f3b.datas_pb2.Light.point
+        dst.kind = f3b.datas_pb2.Light.point        
     elif kind == 'SPOT':
         dst.kind = f3b.datas_pb2.Light.spot
         dst.spot_angle.max = src.spot_size * 0.5
@@ -783,7 +783,9 @@ def export_light(src, dst, cfg):
         for node in src.node_tree.nodes:
             if node.type == "EMISSION":
                 cnv_color(node.inputs[0].default_value, dst.color)
-                dst.intensity = node.inputs[1].default_value
+                if kind=="POINT":
+                        dst.radial_distance.max=node.inputs[1].default_value
+                dst.intensity = 1 #node.inputs[1].default_value
                 dst.cast_shadow = src.cycles.cast_shadow
                 processed=True                
                 
