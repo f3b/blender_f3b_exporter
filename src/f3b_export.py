@@ -101,8 +101,7 @@ class ExportCfg:
         print("ERROR: " + txt)
 
 
-# TODO avoid export obj with same id
-# TODO optimize unify vertex with (same position, color, normal, texcoord,...)
+
 def export(scene, data, cfg):
     export_all_tobjects(scene, data, cfg)
     export_all_geometries(scene, data, cfg)
@@ -698,15 +697,21 @@ def export_material(src_mat, dst_mat, cfg):
                 
              
                 
-                       
+EXT_FORMAT_MAP={"targa":"tga","jpeg":"jpg","targa_raw":"tga"}
 def export_tex(src, dst, cfg):
     base_name=os.path.splitext(src.name)[0]    
     ext="."+str(src.file_format).lower()
     if ext == ".":
+        ext=os.path.splitext(src.filepath)[1]
+    if ext == "":
         ext=os.path.splitext(src.filepath_raw)[1]
-    if ext == ".":
+    if ext == "":
         ext=os.path.splitext(src.name)[1]
-    origin_file=bpy.path.abspath(src.filepath_raw)
+    pext=ext[1:]
+    if pext in EXT_FORMAT_MAP:
+        ext="."+EXT_FORMAT_MAP[pext]
+    
+    origin_file=bpy.path.abspath(src.filepath)
 
     output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
     output_parent=os.path.dirname(output_file)
