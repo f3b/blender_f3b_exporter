@@ -151,6 +151,8 @@ def export_all_tobjects(scene, data, cfg):
 
 def export_all_physics(scene, data, cfg):
     for obj in scene.objects:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
+            continue
         phy_data = None
         phy_data = export_rb(obj, phy_data, data, cfg)
         export_rbct(obj, phy_data, data, cfg)
