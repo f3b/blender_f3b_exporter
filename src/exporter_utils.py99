@@ -1,0 +1,188 @@
+from .utils import *;
+from .Mesh import *;
+
+def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,remove_doubles) {
+  print("Collect mesh data");
+  out_mesh = Mesh(); // [face][vertex]
+
+  // For each face
+  index = 0;
+  vert_pointer = {}
+
+  for (i, f in enumerate(src_mesh.tessfaces)) {
+
+    // Skip if not part of the target material
+    if (material_index != f.material_index) {
+      continue;
+    }
+
+    // Flat shading?
+    is_smooth = f.use_smooth;
+
+    // Get vertex from face
+    vertices = [];
+    for (v in f.vertices) {
+      //  v = f.vertices[v_i];
+      vertex = Vertex();
+      vertex.from_tessface = src_mesh.vertices[v];
+      vertices.append(vertex);
+    }
+
+    // Get vertex from loop
+    face_id = f.index;
+    loop = src_mesh.polygons[face_id];
+    q = 0;
+    for (k in loop.loop_indices) {
+      vl = src_mesh.loops[k];
+      vertices[q].from_loop = vl;
+      q += 1;
+    }
+
+    // Collect what we need from loops & faces
+    for (j, v in enumerate(vertices)) {
+
+      v.i = index;
+
+      // Collect pos
+      v.p = cnv_toVec3ZupToYup(v.from_tessface.co);
+
+      // Collect normal
+      v.n = cnv_toVec3ZupToYup(v.from_tessface.normal if is_smooth else f.normal);
+
+      // Collect all uv layers
+      if (!v.tx) {
+        v.tx = [[]] * min(9, len(src_mesh.tessface_uv_textures));
+      }
+      for (tx_id in range(0, len(v.tx))) {
+        v.tx[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j]);
+      }
+
+      // Collect colors if set
+      if (len(src_mesh.tessface_vertex_colors) >= 1) {
+        face_colors = src_mesh.tessface_vertex_colors.active.data;
+        fc = face_colors[f.index];
+        colors = [];
+        v.c = colors;
+        colors.extend(fc.color1);
+        colors.append(1.0);
+        colors.extend(fc.color2);
+        colors.append(1.0);
+        colors.extend(fc.color3);
+        colors.append(1.0);
+      }
+
+      if (remove_doubles) {
+        try {
+          a_s = vert_pointer[(v.from_tessface.co.freeze())];
+          b = v;
+          found = false;
+          for (a in a_s) {
+            if (a.n == b.n and a.tx == b.tx and a.tg == b.tg and a.c == b.c) {
+              out_mesh.indexes.append(a.i)
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            vert_pointer[(v.from_tessface.co.freeze())].append(v);
+          } else {
+            continue;
+          }
+        } except {
+          vert_pointer[(v.from_tessface.co.freeze())] = [];
+          vert_pointer[(v.from_tessface.co.freeze())].append(v);
+        }
+      }
+      out_mesh.verts.append(v);
+      out_mesh.indexes.append(index)
+      index += 1;
+    }
+  }
+  vert_pointer=null;
+  
+
+  // Now we are going to collect tangents, since they need to be calculated for
+  // each uv, we will do this on another loop
+  if (export_tangents) {
+    // Foreach uvlayer
+    for (k in range(0, len(src_mesh.tessface_uv_textures))) {
+      // Calc tangents
+      src_mesh.calc_tangents(uvmap = src_mesh.tessface_uv_textures[k].name);
+
+      for (v in out_mesh.verts) {
+        tangents = v.tg;
+        // Create tg array if needed
+        if (!tangents) {
+          tangents = [[]] * len(src_mesh.tessface_uv_textures);
+          v.tg = tangents;
+        }
+        // For current uv layer
+        tangents = tangents[k];
+        tan = cnv_toVec3ZupToYup(v.from_loop.tangent);
+        btan = cnv_toVec3ZupToYup(v.from_loop.bitangent);
+        tangents.extend(tan);
+        tangents.append(-1 if dot_vec3(cross_vec3(cnv_toVec3ZupToYup(v.n), tan), btan) < 0 else 1);
+      }
+    }
+  }
+
+  print("Number of vertex: " + str(len(out_mesh.indexes)));
+  print("Number of unique vertex: " + str(len(set(out_mesh.indexes))));
+
+  armature = src_geometry.find_armature();
+  if (armature) {
+    out_mesh.has_skin=true;
+    groupToBoneIndex = make_group_to_bone_index(armature, src_geometry);
+    for (v in out_mesh.verts) {
+      find_bone_influence(src_mesh.vertices,v.from_loop.vertex_index, groupToBoneIndex, out_mesh.skin.boneCount,out_mesh.skin.boneIndex, out_mesh.skin.boneWeight);
+    }
+  }
+  return out_mesh;
+}
+
+def find_bone_influence(vertices, index, groupToBoneIndex, boneCount, boneIndex,    boneWeight) {
+  totalWeight = 0.0;
+  indexArray = [];
+  weightArray = [];
+  groups = sorted(vertices[index].groups, key = lambda x  : x.weight, reverse = True);
+  for (el in groups) {
+    index = groupToBoneIndex[el.group];
+    weight = el.weight;
+    if ((index >= 0) and (weight > 0)) {
+      totalWeight += weight;
+      indexArray.append(index);
+      weightArray.append(weight);
+    }
+  }
+  if (totalWeight > 0) {
+    normalizer = 1.0 / totalWeight;
+    boneCount.append(len(weightArray));
+    for (i in range(0, len(weightArray))) {
+      boneIndex.append(indexArray[i]);
+      boneWeight.append(weightArray[i] * normalizer);
+    }
+  } else {
+    boneCount.append(0);
+  }
+}
+
+def make_group_to_bone_index(armature, src_geometry) {
+  groupToBoneIndex = [];
+  bones = armature.data.bones;
+  // Look up table for bone indices
+ bones_table = [b.name for b in bones];
+
+ for (group in src_geometry.vertex_groups) {
+   groupName = group.name;
+   try {
+     index = bones_table.index(group.name);
+   }except(ValueError) {
+     index = -1; // bind to nothing if not found
+   }
+   groupToBoneIndex.append(index);
+   if (index < 0) {
+   print("groupVertex can't be bind to bone %s -> %s" % (groupName, index))
+   }
+ }
+ return groupToBoneIndex;
+}

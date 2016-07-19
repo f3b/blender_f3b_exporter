@@ -1,0 +1,104 @@
+import mathutils;
+
+def cnv_vec3(src, dst) {
+  dst.x = src[0];
+  dst.y = src[1];
+  dst.z = src[2];
+  return dst;
+}
+
+def cnv_vec4(src, dst) {
+  dst.x = src[0];
+  dst.y = src[1];
+  dst.z = src[2];
+  dst.w = src[3];
+  return dst;
+}
+
+def cnv_vec2(src, dst) {
+  dst.x = src[0];
+  dst.y = src[1];
+  return dst;
+}
+
+def cnv_translation(src, dst) {
+  dst.x = src[0];
+  dst.y = src[2];
+  dst.z = -src[1];
+  return dst;
+}
+
+def cnv_scale(src, dst) {
+  dst.x = src[0];
+  dst.y = src[2];
+  dst.z = src[1];
+  return dst;
+}
+
+def cnv_toVec3ZupToYup(src) {
+  dst = [ src[0], src[2], -src[1] ];
+  return dst;
+}
+
+def cnv_quatZupToYup(src, dst) {
+  src0 = src.copy();
+  q = mathutils.Quaternion((-1, 1, 0, 0));
+  q.normalize();
+  src0.rotate(q);
+
+  dst.w = src0.w;
+  dst.x = src0.x;
+  dst.y = src0.y;
+  dst.z = src0.z;
+  return dst
+}
+
+def cnv_rotation(src, dst) {
+  dst.w = src.w;
+  dst.x = src.x;
+  dst.y = src.z;
+  dst.z = -src.y;
+  return dst;
+}
+
+def cnv_qtr(src, dst) {
+  dst.w = src.w;
+  dst.x = src.x;
+  dst.y = src.y;
+  dst.z = src.z;
+  return dst;
+}
+
+def cnv_color(src, dst) {
+  dst.x = src[0];
+  dst.y = src[1];
+  dst.z = src[2];
+  dst.w = 1.0 if len(src) < 4 else src[3];
+  return dst;
+}
+
+def cross_vec3(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0]
+  ];
+}
+
+def dot_vec3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+def isset(v, k = null) {
+  try {
+    if (k == null) {
+      if (v != null && v) {
+        return true;
+      }
+      return false
+    }
+    if (v[k] != null && v[k]) {
+      return true;
+    }
+  }
+  except { pass; }
+  return false;
+}

@@ -1,0 +1,29 @@
+class Vertex {
+  def __init__(self) {
+    self.p = None;
+    self.n = None;
+    self.c = None;
+    self.tg = None;
+    self.tx = None;
+    self.i = None;
+    self.from_tessface = None;
+    self.from_loop = None;
+  }
+}
+
+class Skin {
+  def __init__(self) {
+    self.boneCount = [];
+    self.boneIndex = [];
+    self.boneWeight = [];
+  }
+}
+
+class Mesh {
+  def __init__(self) {
+    self.verts = []; // Unique vertices
+    self.indexes = [];
+    self.skin = Skin();
+    self.has_skin = false;
+  }
+}

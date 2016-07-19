@@ -23,9 +23,10 @@ import f3b.datas_pb2
 import f3b.custom_params_pb2
 import f3b.animations_kf_pb2
 import f3b.physics_pb2
-from . import helpers  # pylint: disable=W0406
-from .math import *  # pylint: disable=W0406
-from .conversions import *  # pylint: disable=W0406
+
+from . import helpers 
+from .utils import * 
+from .exporter_utils import *
 
 import re,os
 import subprocess
@@ -62,7 +63,7 @@ if DDS_SUPPORT:
 
 
 class ExportCfg:
-    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False,export_tangents=False):
+    def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False,export_tangents=False,remove_doubles=False):
         self.is_preview = is_preview
         self.assets_path = bpy.path.abspath(assets_path)
         self._modified = {}
@@ -70,6 +71,7 @@ class ExportCfg:
         self.option_export_selection=option_export_selection
         self.textures_to_dds=textures_to_dds
         self.export_tangents=export_tangents
+        self.remove_doubles=remove_doubles
 
     def _k_of(self, v):
         # hash(v) or id(v) ?
@@ -371,6 +373,11 @@ def export_meshes(src_geometry, meshes, scene, cfg):
         if mod.type == 'ARMATURE':
             mod_armature.append((mod, getattr(mod, mod_state_attr)))
 
+    tmp_modifier=[]
+    #Add triangulate modifier
+    tmp_modifier.append(src_geometry.modifiers.new("TriangulateForF3b","TRIANGULATE"))
+
+
     # -- without armature applied
     for mod in mod_armature:
         setattr(mod[0], mod_state_attr, False)
@@ -396,156 +403,67 @@ def export_meshes(src_geometry, meshes, scene, cfg):
         dst.id = cfg.id_of(src_mesh) + "_" + str(material_index)
         dst.name = src_geometry.data.name + "_" + str(material_index)
         dst_mesh=dst
-        
+
+        #Collect mesh data 
+        mesh=extract_meshdata(src_mesh,src_geometry,material_index,cfg.export_tangents,cfg.remove_doubles)   
+
         positions = dst_mesh.vertexArrays.add()
         positions.attrib = f3b.datas_pb2.VertexArray.position
         positions.floats.step = 3
-        positions=positions.floats.values
         
         normals = dst_mesh.vertexArrays.add()
         normals.attrib = f3b.datas_pb2.VertexArray.normal
         normals.floats.step = 3
-        normals=normals.floats.values
         
-        colors = None
-        face_colors=None
-        if len(src_mesh.tessface_vertex_colors)>=1:
-            face_colors = src_mesh.tessface_vertex_colors.active.data
+        indexes = dst_mesh.indexArrays.add()
+        indexes.ints.step = 3
+
+        texcoords=[]
+        texcoords_ids=[f3b.datas_pb2.VertexArray.texcoord,f3b.datas_pb2.VertexArray.texcoord2,f3b.datas_pb2.VertexArray.texcoord3,f3b.datas_pb2.VertexArray.texcoord4,f3b.datas_pb2.VertexArray.texcoord5,f3b.datas_pb2.VertexArray.texcoord6,f3b.datas_pb2.VertexArray.texcoord7,f3b.datas_pb2.VertexArray.texcoord8]
+
+        if mesh.verts[0].tg: 
+            tangents_ids=[f3b.datas_pb2.VertexArray.tangent,f3b.datas_pb2.VertexArray.tangent2,f3b.datas_pb2.VertexArray.tangent3,f3b.datas_pb2.VertexArray.tangent4,f3b.datas_pb2.VertexArray.tangent5,f3b.datas_pb2.VertexArray.tangent6,f3b.datas_pb2.VertexArray.tangent7,f3b.datas_pb2.VertexArray.tangent8]
+            tangents=[]
+
+        print("Found ",len(mesh.verts[0].tx)," uvs")
+        for i in range(0,min(9, len(mesh.verts[0].tx))):
+            texcoords.append(dst_mesh.vertexArrays.add())
+            texcoords[i].attrib=texcoords_ids[i]
+            texcoords[i].floats.step = 2
+            if mesh.verts[0].tg: 
+                tangents.append(dst_mesh.vertexArrays.add())
+                tangents[i].attrib = tangents_ids[i]
+                tangents[i].floats.step = 4
+            
+
+        if mesh.verts[0].c:
             colors = dst_mesh.vertexArrays.add()
             colors.attrib = f3b.datas_pb2.VertexArray.color
             colors.floats.step = 4
-            colors=colors.floats.values
 
-        indexes = dst_mesh.indexArrays.add()
-        indexes.ints.step = 3
-        indexes=indexes.ints.values
-        latest_index=0
-        index_order_map={}
-        
-        texcoords=[None]*min(9, len(src_mesh.tessface_uv_textures))
-        texcoords_ids=[f3b.datas_pb2.VertexArray.texcoord,f3b.datas_pb2.VertexArray.texcoord2,f3b.datas_pb2.VertexArray.texcoord3,f3b.datas_pb2.VertexArray.texcoord4,f3b.datas_pb2.VertexArray.texcoord5,f3b.datas_pb2.VertexArray.texcoord6,f3b.datas_pb2.VertexArray.texcoord7,f3b.datas_pb2.VertexArray.texcoord8]
-        
-        armature = src_geometry.find_armature()
-        if armature:
-            print("Armature found")
-            boneCount = []
-            boneIndex = []
-            boneWeight = []
-            groupToBoneIndex = make_group_to_bone_index(armature, src_geometry, cfg)
-        else: print("Armature not found")
-       
-  
-        
-        for i in range(0,len(texcoords)):
-            texcoords[i]=dst_mesh.vertexArrays.add()
-            texcoords[i].attrib=texcoords_ids[i]
-            texcoords[i].floats.step = 2
-            texcoords[i]=texcoords[i].floats.values
-                 
-        loopsV=[]   
-        for i,f in enumerate(src_mesh.tessfaces):
-            if material_index != f.material_index:
-                continue
-            is_smooth=f.use_smooth
-            
-            vertices=[]
-            quad_ids=[] 
-            quad_id=0
-            for v in f.vertices:
-                vertices.append(src_mesh.vertices[v])
-                quad_ids.append(quad_id)
-                quad_id+=1    
-            if len(vertices)==4: #Quad to tris
-                vertices.append(vertices[0])
-                quad_ids.append(quad_ids[0])
-                vertices.append(vertices[2])
-                quad_ids.append(quad_ids[2])
-                vertices.append(vertices[3])
-                quad_ids.append(quad_ids[3])
-                
-                del vertices[3]
-                del quad_ids[3]
-            
-            pf=src_mesh.polygons[f.index]
-            pvertices=[]
-            pquad_ids=[]
-            pquad_id=0
-            for v in range(0,len(pf.loop_indices)):
-                pvertices.append(src_mesh.loops[pf.loop_indices[v]])
-                pquad_ids.append(pquad_id)
-                pquad_id+=1
-            if len(pvertices)==4: #Quad to tris
-                pvertices.append(pvertices[0])
-                pquad_ids.append(pquad_ids[0])
-                pvertices.append(pvertices[2])
-                pquad_ids.append(pquad_ids[2])
-                pvertices.append(pvertices[3])
-                pquad_ids.append(pquad_ids[3])
-                
-                del pvertices[3]
-                del pquad_ids[3]          
-                           
-            for j,v in enumerate(vertices):
-                loopsV.append(pvertices[j])
-                j=quad_ids[j]
-                positions.extend(cnv_toVec3ZupToYup(v.co))
-                normals.extend(cnv_toVec3ZupToYup(v.normal if is_smooth else f.normal))
-                indexes.append(latest_index)
-               
-                iom=index_order_map.get(v.index,None)
-                if iom==None:
-                    iom=[]
-                    index_order_map[v.index]=iom
-                iom.append(latest_index)
-               
-                latest_index+=1                
-                for tx_id in range(0,len(texcoords)):
-                    texcoords[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j])
-                             
-            if face_colors!=None and colors!=None:
-                fc = face_colors[f.index]
-                colors.extend(fc.color1)
-                colors.append(1.0)
-                colors.extend(fc.color2)
-                colors.append(1.0)
-                colors.extend(fc.color3)
-                colors.append(1.0)
-                if len(f.vertices) == 4:
-                    colors.extend(fc.color1)
-                    colors.append(1.0)
-                    colors.extend(fc.color3)
-                    colors.append(1.0)
-                    colors.extend(fc.color4)
-                    colors.append(1.0)
-                
-        if cfg.export_tangents:       
-            tangents_ids=[f3b.datas_pb2.VertexArray.tangent,f3b.datas_pb2.VertexArray.tangent2,f3b.datas_pb2.VertexArray.tangent3,f3b.datas_pb2.VertexArray.tangent4,f3b.datas_pb2.VertexArray.tangent5,f3b.datas_pb2.VertexArray.tangent6,f3b.datas_pb2.VertexArray.tangent7,f3b.datas_pb2.VertexArray.tangent8]
 
-            #Tangents: Todo take in account flat shading.
-            for k in range(0, len(src_mesh.tessface_uv_textures)):
-                src_mesh.calc_tangents(uvmap=src_mesh.tessface_uv_textures[k].name)
-                tangents = dst_mesh.vertexArrays.add()
-                tangents.attrib = tangents_ids[k]
-                tangents.floats.step = 4
-                tangents=tangents.floats.values      
-                for vert in loopsV:
-                    tan=cnv_toVec3ZupToYup(vert.tangent)
-                    btan=cnv_toVec3ZupToYup(vert.bitangent)
-                    tangents.extend(tan)           
-                    tangents.append(-1 if dot_vec3(cross_vec3( cnv_toVec3ZupToYup(vert.normal), tan),btan) < 0  else 1)
-                
-        #Vertloop        
-        for vert in loopsV:
-            #Bone weights    
-            if armature: 
-                find_influence(src_mesh.vertices, vert.index, groupToBoneIndex, boneCount, boneIndex, boneWeight)
-                    
-        if armature:
-            dst_skin = dst_mesh.skin
-            dst_skin.boneCount.extend(boneCount)
-            dst_skin.boneIndex.extend(boneIndex)
-            dst_skin.boneWeight.extend(boneWeight)
-        
+
+        indexes.ints.values.extend(mesh.indexes)
+        for v in mesh.verts:
+            positions.floats.values.extend(v.p)
+            normals.floats.values.extend(v.n)
+            if v.c:
+                colors.floats.values.extend(v.c)
+            if v.tx:
+                for i,tx in enumerate(v.tx):
+                    texcoords[i].floats.values.extend(tx)
+                    if v.tg:
+                        tangents[i].floats.values.extend(v.tg[i])            
+
+        if mesh.has_skin:
+            dst_skin=dst_mesh.skin
+            dst_skin.boneCount.extend(mesh.skin.boneCount)
+            dst_skin.boneIndex.extend(mesh.skin.boneIndex)
+            dst_skin.boneWeight.extend(mesh.skin.boneWeight)
+
+    for m in tmp_modifier:
+        src_geometry.modifiers.remove(m)
+
     return dstMap
 
 
@@ -860,53 +778,6 @@ def export_skeleton(src, dst, cfg):
             rel = dst.bones_graph.add()
             rel.ref1 = cfg.id_of(src_bone.parent)
             rel.ref2 = dst_bone.id
-
-
-
-
-def make_group_to_bone_index(armature, src_geometry, cfg):
-    groupToBoneIndex = []
-    bones = armature.data.bones
-    # Look up table for bone indices
-    bones_table = [b.name for b in bones]
-
-    for group in src_geometry.vertex_groups:
-        groupName = group.name
-        try:
-            index = bones_table.index(group.name)
-        except ValueError:
-            index = -1  # bind to nothing if not found
-        # for i in range(len(boneArray)):
-        #     if (boneArray[i].name == groupName):
-        #         index = i
-        #         break
-        groupToBoneIndex.append(index)
-        if index < 0:
-            cfg.warning("groupVertex can't be bind to bone %s -> %s" % (groupName, index))
-    return groupToBoneIndex
-
-
-def find_influence(vertices, index, groupToBoneIndex, boneCount, boneIndex, boneWeight):
-    totalWeight = 0.0
-    indexArray = []
-    weightArray = []
-    groups = sorted(vertices[index].groups, key=lambda x: x.weight, reverse=True)
-    for el in groups:
-        index = groupToBoneIndex[el.group]
-        weight = el.weight
-        if (index >= 0) and (weight > 0):
-            totalWeight += weight
-            indexArray.append(index)
-            weightArray.append(weight)
-    if totalWeight > 0:
-        normalizer = 1.0 / totalWeight
-        boneCount.append(len(weightArray))
-        for i in range(0, len(weightArray)):
-            boneIndex.append(indexArray[i])
-            boneWeight.append(weightArray[i] * normalizer)
-    else:
-        # print("vertex without influence")
-        boneCount.append(0)
 
 
 def export_all_actions(scene, dst_data, cfg):
@@ -1362,7 +1233,7 @@ def equals_mat4(m0, m1, max_cell_delta):
 #                         seg_duration = p1.co[0] - p0.co[0]
 #                         # print("kf co(%s) , left (%s), right(%s) : (%s, %s)" % ())
 #                         bp.h0_x = (p0.handle_right[0] - p0.co[0]) / seg_duration
-#                         bp.h0_y = p0.	handle_right[1] * dst_kfs_coef
+#                         bp.h0_y = p0.    handle_right[1] * dst_kfs_coef
 #                         bp.h1_x = (p1.handle_left[0] - p0.co[0]) / seg_duration
 #                         bp.h1_y = p1.handle_left[1] * dst_kfs_coef
 #             # print("res dst_kf %r" % (dst_kf))
@@ -1442,6 +1313,7 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
     # settings = bpy.props.PointerProperty(type=f3bSettingsScene)
     option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
     option_export_tangents = bpy.props.BoolProperty(name = "Export Tangents", description = "", default = False)
+    option_remove_doubles = bpy.props.BoolProperty(name = "Remove Doubles", description = "", default = True)
 
     if DDS_SUPPORT:
         option_convert_texture_dds = bpy.props.BoolProperty(name = "Convert textures to dds", description = "", default = True)
@@ -1464,7 +1336,7 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
         # self.frameTime = 1.0 / (scene.render.fps_base * scene.render.fps)
 
         data = f3b.datas_pb2.Data()
-        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds,export_tangents=self.option_export_tangents)
+        cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds,export_tangents=self.option_export_tangents,remove_doubles=self.option_remove_doubles)
         export(scene, data, cfg)
 
         file = open(self.filepath, "wb")

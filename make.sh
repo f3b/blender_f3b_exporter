@@ -18,11 +18,24 @@ function checkErrors {
 
 
 
+function compilePy99 {
+    if [ ! -f "build/py99.py" ];
+    then
+        wget -q https://raw.githubusercontent.com/riccardobl/py99/master/py99.py -O build/py99.py
+    fi
+   base=`basename $1`
+   noext="${base%.*}"
+   python3 build/py99.py $1 build/tmp/f3b_exporter/$noext.py
+}
+export -f compilePy99
+
 
 function build {
     mkdir -p build/tmp/f3b_exporter
 
     cp src/*.py build/tmp/f3b_exporter/
+    find src -type f -name '*.py99' -exec bash -c 'compilePy99 {}' \;
+
     cp -R docs build/tmp/f3b_exporter/
     cp README.md build/tmp/f3b_exporter/
     cp LICENSE build/tmp/f3b_exporter/
