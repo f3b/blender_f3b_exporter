@@ -1,3 +1,5 @@
+// Copyright  Riccardo Balbo
+
 from .utils import *;
 from .Mesh import *;
 
@@ -7,9 +9,9 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
 
   // For each face
   index = 0;
-  vert_pointer = {}
+  vert_pointer = {};
 
-  for (i, f in enumerate(src_mesh.tessfaces)) {
+  for (i, f in enumerate(src_mesh.polygons)) {
 
     // Skip if not part of the target material
     if (material_index != f.material_index) {
@@ -53,7 +55,7 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
       if (!v.tx) {
         v.tx = [[]] * min(9, len(src_mesh.tessface_uv_textures));
       }
-      for (tx_id in range(0, len(v.tx))) {
+      for (tx_id in range(0, len(v.tx))) { // BUG?: Issue with multiple uv layers? < have to check that.
         v.tx[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j]);
       }
 
@@ -94,7 +96,7 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
         }
       }
       out_mesh.verts.append(v);
-      out_mesh.indexes.append(index)
+      out_mesh.indexes.append(index);
       index += 1;
     }
   }

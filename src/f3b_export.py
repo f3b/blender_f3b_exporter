@@ -315,12 +315,6 @@ def export_all_geometries(scene, data, cfg):
                     if material_index > -1 and material_index < len(obj.material_slots):
                         src_mat = obj.material_slots[material_index].material
                         add_relation_raw(data.relations, f3b.datas_pb2.Mesh.__name__, mesh.id, f3b.datas_pb2.Material.__name__, cfg.id_of(src_mat), cfg)
-        elif obj.type == 'LAMP':
-            src_light = obj.data
-            if cfg.need_update(src_light):
-                dst_light = data.lights.add()
-                export_light(src_light, dst_light, cfg)
-                add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Light.__name__, dst_light.id, cfg)
 
 
 def export_all_materials(scene, data, cfg):
@@ -344,7 +338,7 @@ def export_all_lights(scene, data, cfg):
             if cfg.need_update(src_light):
                 dst_light = data.lights.add()
                 export_light(src_light, dst_light, cfg)
-            add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Light.__name__, cfg.id_of(src_light), cfg)
+                add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Light.__name__, cfg.id_of(src_light), cfg)
 
 
 def add_relation(relations, e1, e2, cfg):
@@ -376,7 +370,6 @@ def export_meshes(src_geometry, meshes, scene, cfg):
     tmp_modifier=[]
     #Add triangulate modifier
     tmp_modifier.append(src_geometry.modifiers.new("TriangulateForF3b","TRIANGULATE"))
-
 
     # -- without armature applied
     for mod in mod_armature:

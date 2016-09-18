@@ -1,3 +1,5 @@
+// Copyright  Riccardo Balbo
+
 class Vertex {
   def __init__(self) {
     self.p = None;
