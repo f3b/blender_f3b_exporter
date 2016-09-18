@@ -19,7 +19,7 @@
 bl_info = {
     "name": "F3b Exporter",
     "author": "Riccardo Balbo, based on xbuf exporter by David Bernard",
-    "version": (0, 7),
+    "version": (0, 3,2),
     "blender": (2, 73, 0),
     # "location": "Render > Engine > F3b Render",
     "description": "f3b exporter",
