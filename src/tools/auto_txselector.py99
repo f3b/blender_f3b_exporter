@@ -1,0 +1,117 @@
+import bpy,re,os;
+
+CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("\\!\s*([^;]+)");
+CYCLES_MAT_INPUT_PATTERN=re.compile("\\!\s*([^;]+)");
+
+FORMAT_EXT={
+    "bmp":"bmp",
+    "dds":"dds",
+    "hdr":"hdr",
+    "targa":"tga",
+    "jpeg":"jpg",
+    "targa_raw":"tga",
+    "targa":"tga",
+    "png":"png"
+};
+
+def dumpCyclesExportableMats(intree,outarr,parent=None){
+    if(intree==None) {
+        return;
+    }
+    name=intree.name;
+    name_match=CYCLES_EXPORTABLE_MATS_PATTERN.match(name);
+    if (name_match!=None and intree!=None){
+        material_path=name_match.group(1);
+        mat=parent;
+        outarr.append([material_path,mat]);
+    }
+    if( isinstance(intree, bpy.types.NodeTree)){       
+        for (node in intree.nodes){
+            dumpCyclesExportableMats(node,outarr,intree);
+        }
+    }
+    try{             
+        dumpCyclesExportableMats(intree.node_tree,outarr,intree);
+    } except{
+         pass;
+    }
+}
+def selectTextures(path){
+    for (obj in bpy.context.scene.objects){
+        if (obj.select){
+            for (i in range(0,len(obj.material_slots))){
+                material=obj.material_slots[i].material;
+                mat_name=material.name;
+                cycles_mat=[];
+                dumpCyclesExportableMats(material.node_tree,cycles_mat);
+                for (cym in cycles_mat){
+                    for( input in cym[1].inputs){
+                        input_name=CYCLES_MAT_INPUT_PATTERN.match(input.name);
+                        if( input_name!=None and input.is_linked){
+                            input_name=input_name.group(1)  ;
+                            linked=input.links[0].from_node;
+                            if (linked.type=="TEX_IMAGE"){
+                                file_name=(mat_name+"_"+input_name);
+                                file_path=path+file_name;
+                                for( k in FORMAT_EXT){
+                                    ext=FORMAT_EXT[k];
+                                    file=file_path+"."+ext;
+                                    if( os.path.isfile(file)){
+                                        linked.image.name=file_name;
+                                        linked.image.filepath=file;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+                    
+                  
+              
+              
+from bpy_extras.io_utils import ExportHelper;
+from bpy.props import StringProperty, BoolProperty, EnumProperty;
+from bpy.types import Operator;
+
+
+class F3bAutoTextureSelector(Operator, ExportHelper){
+    bl_idname = "f3b_tools.auto_texture_selector";
+    bl_label = "Select assets path";
+    filename_ext = "";
+
+    use_filter_folder = true;
+    
+    def invoke(self, context, event){
+        self.filepath = "";
+        context.window_manager.fileselect_add(self);
+        return {'RUNNING_MODAL'};
+    }
+    
+    def execute(self, context){
+        path=self.filepath;
+        if (not os.path.isdir(path)){
+             path=os.path.split(os.path.abspath(path))[0]+os.path.sep;
+        }
+        selectTextures(path) ;
+        return {"FINISHED"};
+    }
+}
+
+
+def register(){
+    bpy.utils.register_class(F3bAutoTextureSelector);
+}
+
+
+def unregister(){
+    bpy.utils.unregister_class(F3bAutoTextureSelector);
+}
+   
+
+if (__name__ == "__main__"){
+    register();
+    bpy.ops.f3b_tools.auto_texture_selector('INVOKE_DEFAULT');
+}

@@ -30,37 +30,9 @@ from .exporter_utils import *
 
 import re,os
 import subprocess
-IMAGEMAGICK_CONVERT_PATH="convert"
 
+DDS_WRITER_PATH=os.path.dirname(__file__)+"/bin/dds_writer.sh"
 DDS_SUPPORT=True
-
-if DDS_SUPPORT:
-    out=None
-    
-    try:
-        out = subprocess.getoutput(IMAGEMAGICK_CONVERT_PATH+" -list format")
-    except:
-        pass
-        
-    if not out:
-        print("Executable "+IMAGEMAGICK_CONVERT_PATH+" not found")
-    else:    
-        matched=False
-        rx=re.compile('\s*DDS\*\s*rw.')
-        for l in out.splitlines():
-            if rx.match(l):
-                matched=True
-                break
-            
-        if not matched:
-            print("The installed version of imagemagick doesn't support DDS writing")
-            DDS_SUPPORT=False
-
-if DDS_SUPPORT:
-    print("DDS support is enabled!")
-    
-
-
 
 class ExportCfg:
     def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False,export_tangents=False,remove_doubles=False):
@@ -116,6 +88,7 @@ def export(scene, data, cfg):
 def export_all_tobjects(scene, data, cfg):
     for obj in scene.objects:
         if obj.hide_render or (cfg.option_export_selection and not obj.select):
+            print("Skip ",obj,"not selected/render disabled")
             continue
         if cfg.need_update(obj):
             tobject = data.tobjects.add()
@@ -123,33 +96,22 @@ def export_all_tobjects(scene, data, cfg):
             tobject.name = obj.name
             loc, quat, scale = obj.matrix_local.decompose()
             cnv_scale(scale, tobject.scale)
-            # convert zup only for direct child of root (no parent)
             cnv_translation(loc, tobject.translation)
-            # cnv_scale(helpers.rot_quat(obj), transform.rotation)
-            # if obj.type == 'MESH':
-            #    cnv_translation(obj.location, transform.translation)
-            #    cnv_quatZupToYup(helpers.rot_quat(obj), transform.rotation)
-            # if obj.parent is None:
-            #     cnv_translation(obj.location, transform.translation)
-            #     cnv_quatZupToYup(helpers.rot_quat(obj), transform.rotation)
-            # else:
             if obj.type == 'MESH':
-                # cnv_scale(helpers.rot_quat(obj), transform.rotation)
-                # cnv_rotation(helpers.rot_quat(obj), transform.rotation)
                 cnv_rotation(quat, tobject.rotation)
             elif obj.type == 'Armature':
-                # cnv_rotation(helpers.rot_quat(obj), transform.rotation)
                 cnv_rotation(quat, tobject.rotation)
             elif obj.type == 'LAMP':
-                # rot = helpers.z_backward_to_forward(helpers.rot_quat(obj))
                 rot = helpers.z_backward_to_forward(quat)
                 cnv_quatZupToYup(rot, tobject.rotation)
             else:
                 cnv_rotation(helpers.rot_quat(obj), tobject.rotation)
             if obj.parent is not None:
-                #    tobject.parentId = cfg.id_of(obj.parent)
                 add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj.parent), f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), cfg)
             export_obj_customproperties(obj, tobject, data, cfg)
+        else:
+            print("Skip ",obj,"already exported")
+
 
 def export_all_physics(scene, data, cfg):
     for obj in scene.objects:
@@ -303,6 +265,7 @@ def export_rb(ob, phy_data, data, cfg):
 def export_all_geometries(scene, data, cfg):
     for obj in scene.objects:
         if obj.hide_render or (cfg.option_export_selection and not obj.select):
+            print("Skip ",obj,"not selected/render disabled")
             continue
         if obj.type == 'MESH':
             if len(obj.data.polygons) != 0 and cfg.need_update(obj.data):
@@ -310,11 +273,13 @@ def export_all_geometries(scene, data, cfg):
                 for material_index, mesh in meshes.items():
                     # several object can share the same mesh
                     for obj2 in scene.objects:
-                        if obj2.data == obj.data:
+                        if obj2.data == obj.data: 
                             add_relation_raw(data.relations, f3b.datas_pb2.Mesh.__name__, mesh.id, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj2), cfg)
                     if material_index > -1 and material_index < len(obj.material_slots):
                         src_mat = obj.material_slots[material_index].material
                         add_relation_raw(data.relations, f3b.datas_pb2.Mesh.__name__, mesh.id, f3b.datas_pb2.Material.__name__, cfg.id_of(src_mat), cfg)
+            else:
+                print("Skip ",obj,"already exported")
 
 
 def export_all_materials(scene, data, cfg):
@@ -327,6 +292,7 @@ def export_all_materials(scene, data, cfg):
                 if cfg.need_update(src_mat):
                     dst_mat = data.materials.add()
                     export_material(src_mat, dst_mat, cfg)
+    __async_wait()
 
 
 def export_all_lights(scene, data, cfg):
@@ -335,7 +301,7 @@ def export_all_lights(scene, data, cfg):
             continue
         if obj.type == 'LAMP':
             src_light = obj.data
-            if cfg.need_update(src_light):
+            if 1==1:#cfg.need_update(src_light):
                 dst_light = data.lights.add()
                 export_light(src_light, dst_light, cfg)
                 add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Light.__name__, cfg.id_of(src_light), cfg)
@@ -488,10 +454,34 @@ def dumpCyclesExportableMats(intree,outarr,parent=None):
     try:             
         dumpCyclesExportableMats(intree.node_tree,outarr,intree)
     except: pass
-    
+
+from  concurrent.futures import ThreadPoolExecutor
+_ASYNC_POOL= ThreadPoolExecutor(max_workers=2)
+_ASYNC_POOL_W=[]
+
+def __async(f,*a):
+   # f(*a)
+   _ASYNC_POOL_W.append(_ASYNC_POOL.submit( f, *a))
+
+
+
+def __async_wait():
+    print("Wait for async tasks")
+    global _ASYNC_POOL_W    
+    for s  in  _ASYNC_POOL_W:
+        s.result()
+    _ASYNC_POOL_W=[]
+    print("Done")
+
+
+
 def parseNode(input_node,input_type,dst_mat,input_label,cfg):                    
     #input_node=input.links[0].from_node
     #input_type=input_node.type                    
+    parts=input_label.split("+")
+    input_label=parts[0]
+    args=parts[1] if len(parts)>1 else ""
+
     if input_type=="RGB" or input_type=="RGBA":
         prop=dst_mat.properties.add()
         prop.id=input_label
@@ -506,7 +496,8 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
     elif input_type=="TEX_IMAGE":
         prop=dst_mat.properties.add()
         prop.id=input_label
-        export_tex(input_node.image,prop.texture,cfg)
+        solid=len(input_node.outputs[1].links)==0 #If alpha is not connected= solid
+        __async(export_tex,solid,args,input_node.image,prop.texture,cfg)
         print("Found texture")
     elif input_type=="GROUP": # Custom nodes groups as input
         name=input_node.node_tree.name
@@ -568,8 +559,8 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                 prop.vbool=True
                 print("Found boolean TRUE")
             elif name == "FALSE":
-                prop.vbool=False     
                 prop=dst_mat.properties.add()
+                prop.vbool=False     
                 prop.id=input_label     
                 print("Found boolean FALSE")          
             elif name == "PRESET":
@@ -582,7 +573,7 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                         print("Preset end")
                         break    
             else: 
-                print(input_type,"not supported")
+                print(input_type,"not supported [1]",name)
     else: 
         print(input_type,"not supported")
     
@@ -611,7 +602,7 @@ def export_material(src_mat, dst_mat, cfg):
              
                 
 EXT_FORMAT_MAP={"targa":"tga","jpeg":"jpg","targa_raw":"tga"}
-def export_tex(src, dst, cfg):
+def export_tex(solid,args,src, dst, cfg):
     base_name=src.name
     ext="."+src.file_format.lower()
     if ext == ".":
@@ -625,8 +616,10 @@ def export_tex(src, dst, cfg):
         ext="."+EXT_FORMAT_MAP[pext]
 
     origin_file=bpy.path.abspath(src.filepath)
-
+    print("Base texture name",base_name,"assets path",cfg.assets_path)
     output_file=os.path.join(cfg.assets_path,"Textures",base_name)+ext  
+    print("Write texture in",output_file)
+
     output_parent=os.path.dirname(output_file)
         
     is_packed=src.packed_file
@@ -652,13 +645,41 @@ def export_tex(src, dst, cfg):
               
             expected_mipmaps= 1 + int(math.ceil(math.log(src.size[0] if src.size[0] >src.size[1] else src.size[1]) / math.log(2)))  
             dds_file=os.path.join(cfg.assets_path,"Textures",base_name)+".dds"    
-            command="\
-            "+IMAGEMAGICK_CONVERT_PATH+"\
-             -format dds \
-             -filter Mitchell \
-             -define dds:compression=dxt5 \
-             -define dds:mipmaps="+str(expected_mipmaps)+" \
-             "+output_file+" "+dds_file
+       #     command="\
+        #    "+IMAGEMAGICK_CONVERT_PATH+"\
+         #    -format dds \
+          #   -filter Mitchell \
+           #  -define dds:compression=dxt5 \
+            # -define dds:mipmaps="+str(expected_mipmaps)+" \
+            # "+output_file+" "+dds_file
+            dds_args=args
+            format =None
+            if "dds{" in dds_args:
+                dds_args=dds_args[dds_args.index("dds{")+4:]
+                dds_args=dds_args[:dds_args.index("}")]
+                dds_args=dds_args.split(",")
+                for dds_arg in dds_args:
+                    key,value=dds_arg.split("=")
+                    key=key.strip()
+                    if key=="solid" and solid and value!=None:      
+                        format=value.replace("'","").strip()
+                        break
+                    elif key=="alpha" and not solid and value!=None:
+                        format=value.replace("'","").strip()
+
+            if format==None:
+                format="UNCOMPRESSED"
+
+            format=format.upper()
+           
+            if format=="ATI2" or format=="3DC":
+                format="ATI_3DC"
+            elif format=="DXT1" or format=="DXT3" or format=="DXT5":
+                format="S3TC_"+format
+            elif format=="UNCOMPRESSED":
+                format="ARGB8"
+
+            command=DDS_WRITER_PATH+" --use_lwjgl --gen-mipmaps --format "+format+" --in "+output_file+"  --out "+dds_file
             print("Run",command)
             print(subprocess.getoutput(command))
             os.remove(output_file)
@@ -853,14 +874,11 @@ class Sampler:
     def capture(self, t):
         if self.pose_bone_idx is not None:
             pbone = self.obj.pose.bones[self.pose_bone_idx]
-            # mat4 = self.obj.convert_space(pbone, pbone.matrix, from_space='POSE', to_space='LOCAL')
             mat4 = pbone.matrix
             if pbone.parent:
                 mat4 = pbone.parent.matrix.inverted() * mat4
         else:
             mat4 = self.obj.matrix_local
-        # mat4 = self.cnv_mat * mat4
-        # mat4 = self.obj.matrix_local.inverted() * mat4
         if self.previous_mat4 is None or not equals_mat4(mat4, self.previous_mat4, 0.000001):
             if self.last_equals is not None:
                 self._store(self.last_equals, self.previous_mat4)
@@ -872,7 +890,6 @@ class Sampler:
 
     def _store(self, t, mat4):
         loc, quat, sca = mat4.decompose()
-        # print("capture : %r, %r, %r, %r, %r, %r " % (t, self.obj, self.pose_bone_idx, loc, quat, sca))
         dst_clip = self.clip
         dst_clip.sampled_transform.at.append(t)
         dst_clip.sampled_transform.translation_x.append(loc.x)
@@ -885,17 +902,6 @@ class Sampler:
         dst_clip.sampled_transform.rotation_x.append(quat.x)
         dst_clip.sampled_transform.rotation_y.append(quat.z)
         dst_clip.sampled_transform.rotation_z.append(-quat.y)
-        # dst_clip.sampled_transform.translation_x.append(loc.x)
-        # dst_clip.sampled_transform.translation_y.append(loc.y)
-        # dst_clip.sampled_transform.translation_z.append(loc.z)
-        # dst_clip.sampled_transform.scale_x.append(sca.x)
-        # dst_clip.sampled_transform.scale_y.append(sca.y)
-        # dst_clip.sampled_transform.scale_z.append(sca.z)
-        # dst_clip.sampled_transform.rotation_w.append(quat.w)
-        # dst_clip.sampled_transform.rotation_x.append(quat.x)
-        # dst_clip.sampled_transform.rotation_y.append(quat.y)
-        # dst_clip.sampled_transform.rotation_z.append(quat.z)
-
 
 def equals_mat4(m0, m1, max_cell_delta):
     for i in range(0, 4):
@@ -904,366 +910,6 @@ def equals_mat4(m0, m1, max_cell_delta):
             if d > max_cell_delta or d < -max_cell_delta:
                 return False
     return True
-# ------------------------------------------------------------------------------
-# def export_action(src, dst, fps, cfg):
-#     def to_time(frame):
-#         return int((frame * 1000) / fps)
-#         # return float(f - src.frame_range.x) / frames_duration
-#     dst.id = cfg.id_of(src)
-#     dst.name = src.name
-#     if src.id_root == 'OBJECT':
-#         dst.target_kind = f3b.animations_kf_pb2.AnimationKF.tobject
-#     elif src.id_root == 'ARMATURE':
-#         dst.target_kind = f3b.animations_kf_pb2.AnimationKF.skeleton
-#     else:
-#         cfg.warning("unsupported id_roor => target_kind : " + src.id_root)
-#         return
-#
-#     frame_start = int(src.frame_range.x)
-#     frame_end = int(src.frame_range.y)
-#     dst.duration = to_time(max(1, float(frame_end - frame_start)))
-#     anims = fcurves_to_animTransforms(src.fcurves, cfg)
-#     export_animTransforms(dst, anims, frame_start, frame_end + 1, to_time)
-#
-#
-# def fcurves_to_animTransforms(fcurves, cfg):
-#     import re
-#
-#     p = re.compile(r'pose.bones\["([^"]*)"\]\.(.*)')
-#     anims = {}
-#     for fcurve in fcurves:
-#         anim_name = None
-#         target_name = fcurve.data_path
-#         m = p.match(target_name)
-#         if m:
-#             anim_name = m.group(1)
-#             target_name = m.group(2)
-#         if not (anim_name in anims):
-#             anims[anim_name] = AnimTransform()
-#         anim = anims[anim_name]
-#         if target_name == "location":
-#             anim.fcurve_t[fcurve.array_index] = fcurve
-#         elif target_name == "scale":
-#             anim.fcurve_s[fcurve.array_index] = fcurve
-#         elif target_name == "rotation_quaternion":
-#             anim.fcurve_r[fcurve.array_index] = fcurve
-#         elif target_name == "rotation_euler":
-#             anim.fcurve_r[fcurve.array_index] = fcurve
-#         else:
-#             cfg.warning("unsupported : " + target_name)
-#             continue
-#     return anims
-#
-#
-# def export_animTransforms(dst, anims, frame_start, frame_end, to_time):
-#     ats = []
-#     for f in range(frame_start, frame_end):
-#         ats.append(to_time(f))
-#     for k in anims:
-#         anim = anims[k]
-#         if not anim.is_empty():
-#             clip = dst.clips.add()
-#             if k is not None:
-#                 clip.sampled_transform.bone_name = k
-#             clip.sampled_transform.at.extend(ats)
-#             anim.to_clip(clip, frame_start, frame_end)
-#
-#
-# class AnimTransform:
-#     def __init__(self):
-#         # x, y, z, w
-#         self.fcurve_t = [None, None, None]  # x,y,z
-#         self.fcurve_r = [None, None, None, None]  # w,x,y,z
-#         self.fcurve_s = [None, None, None]  # x,y,z
-#
-#     def is_empty(self):
-#         b = True
-#         for v in self.fcurve_t:
-#             b = b and (v is None)
-#         for v in self.fcurve_r:
-#             b = b and (v is None)
-#         for v in self.fcurve_s:
-#             b = b and (v is None)
-#         return b
-#
-#     def sample(self, frame_start, frame_end, coeff, fcurve):
-#         b = []
-#         if fcurve is not None:
-#             for f in range(frame_start, frame_end):
-#                 b.append(fcurve.evaluate(f) * coeff)
-#         return b
-#
-#     def cnv_translation(self, frame_start, frame_end):
-#         return (
-#             self.sample(frame_start, frame_end, 1, self.fcurve_t[0]),
-#             self.sample(frame_start, frame_end, 1, self.fcurve_t[2]),
-#             self.sample(frame_start, frame_end, -1, self.fcurve_t[1])
-#         )
-#
-#     def cnv_scale(self, frame_start, frame_end):
-#         return (
-#             self.sample(frame_start, frame_end, 1, self.fcurve_s[0]),
-#             self.sample(frame_start, frame_end, 1, self.fcurve_s[2]),
-#             self.sample(frame_start, frame_end, 1, self.fcurve_s[1])
-#         )
-#
-#     def cnv_rotation(self, frame_start, frame_end):
-#         qx = []
-#         qy = []
-#         qz = []
-#         qw = []
-#         if (self.fcurve_r[3] is not None) and self.fcurve_r[3].data_path.endswith("rotation_quaternion"):
-#             qw = self.sample(frame_start, frame_end, 1, self.fcurve_r[0])
-#             qx = self.sample(frame_start, frame_end, 1, self.fcurve_r[1])
-#             qy = self.sample(frame_start, frame_end, 1, self.fcurve_r[3])
-#             qz = self.sample(frame_start, frame_end, -1, self.fcurve_r[2])
-#         elif (self.fcurve_r[0] is not None) and self.fcurve_r[0].data_path.endswith("rotation_euler"):
-#             # TODO use order of target
-#             for f in range(frame_start, frame_end):
-#                 eul = mathutils.Euler()
-#                 eul.x = self.fcurve_r[0].evaluate(f)
-#                 eul.y = self.fcurve_r[1].evaluate(f)
-#                 eul.z = self.fcurve_r[2].evaluate(f)
-#                 q = eul.to_quaternion()
-#                 qw.append(q.w)
-#                 qx.append(q.x)
-#                 qy.append(q.z)
-#                 qz.append(-q.y)
-#         return (qw, qx, qy, qz)
-#
-#     def to_clip(self, dst_clip, frame_start, frame_end):
-#         t = self.cnv_translation(frame_start, frame_end)
-#         dst_clip.sampled_transform.translation_x.extend(t[0])
-#         dst_clip.sampled_transform.translation_y.extend(t[1])
-#         dst_clip.sampled_transform.translation_z.extend(t[2])
-#
-#         s = self.cnv_scale(frame_start, frame_end)
-#         dst_clip.sampled_transform.scale_x.extend(s[0])
-#         dst_clip.sampled_transform.scale_y.extend(s[1])
-#         dst_clip.sampled_transform.scale_z.extend(s[2])
-#
-#         r = self.cnv_rotation(frame_start, frame_end)
-#         dst_clip.sampled_transform.rotation_w.extend(r[0])
-#         dst_clip.sampled_transform.rotation_x.extend(r[1])
-#         dst_clip.sampled_transform.rotation_y.extend(r[2])
-#         dst_clip.sampled_transform.rotation_z.extend(r[3])
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-# def relativize_bones(dst_anim, obj):
-#     if obj.type != 'ARMATURE':
-#         return
-#     src_skeleton = obj.data
-#     if not(src_skeleton.bones):
-#         return
-#
-#     def find_SampledTransform_by_bone_name(name):
-#         for clip in dst_anim.clips:
-#             if clip.sampled_transform.bone_name == name:
-#                 return clip.sampled_transform
-#         return None
-#
-#     def relativize_children_bone(parent, sampled_parent):
-#         for child in parent.children:
-#             sampled_child = find_SampledTransform_by_bone_name(child.name)
-#             # children first
-#             relativize_children_bone(child, sampled_child)
-#             if sampled_child:
-#                 relativize_scale(sampled_child, sampled_parent, parent)
-#                 relativize_rotation(sampled_child, sampled_parent, parent)
-#                 relativize_translation(sampled_child, sampled_parent, parent)
-#                 # pass
-#     for bone in src_skeleton.bones:
-#         # only parent
-#         if not(bone.parent):
-#             relativize_children_bone(bone, find_SampledTransform_by_bone_name(bone.name))
-#
-#
-# def relativize_rotation(sampled_child, sampled_parent, parent):
-#     def to_quat(l, i):
-#         return mathutils.Quaternion((l.rotation_w[i], l.rotation_x[i], l.rotation_y[i], l.rotation_z[i]))
-#     if not(sampled_child) or not(sampled_child.rotation_w):
-#         return
-#     lg = len(sampled_child.at)
-#     pq = parent.matrix_local.to_quaternion()
-#     # pq.normalize()
-#     t = pq.z
-#     pq.z = -pq.y
-#     pq.y = t
-#     #        if src_bone.parent:
-#     #            boneMat = src_bone.parent.matrix_local.inverted() * src_bone.matrix_local
-#     #        loc, quat, sca = boneMat.decompose()
-#     for i in range(0, lg):
-#         p = pq
-#         if sampled_parent and sampled_parent.rotation_w:
-#             p = to_quat(sampled_parent, i)
-#             p.invert()
-#             # p.normalize()
-#         c = to_quat(sampled_child, i)
-#         c = c * p
-#         sampled_child.rotation_w[i] = c.w
-#         sampled_child.rotation_x[i] = c.x
-#         sampled_child.rotation_y[i] = c.y
-#         sampled_child.rotation_z[i] = c.z
-#
-#
-# def relativize_translation(sampled_child, sampled_parent, parent):
-#     def r_axe1(lg, cl, pl):
-#         if cl:
-#             for i in range(0, lg):
-#                 p = pl[i]
-#                 c = cl[i]
-#                 cl[i] = c - p
-#
-#     def r_axe2(lg, cl, pdef):
-#         if cl:
-#             for i in range(0, lg):
-#                 c = cl[i]
-#                 cl[i] = c - pdef
-#
-#     def r_axe(lg, cs, ps, axe, pdef):
-#         if hasattr(sampled_parent, 'axe'):
-#             r_axe1(lg, getattr(cs, axe), getattr(ps, axe))
-#         else:
-#             r_axe2(lg, getattr(cs, axe), pdef)
-#
-#     lg = len(sampled_child.at)
-#     ploc = parent.matrix_local.to_translation()
-#     r_axe(lg, sampled_child, sampled_parent, 'translation_x', ploc.x)
-#     r_axe(lg, sampled_child, sampled_parent, 'translation_y', ploc.z)
-#     r_axe(lg, sampled_child, sampled_parent, 'translation_z', -ploc.y)
-#
-#
-# def relativize_scale(sampled_child, sampled_parent, parent):
-#     def r_axe1(lg, cl, pl):
-#         if cl:
-#             for i in range(0, lg):
-#                 p = pl[i]
-#                 c = cl[i]
-#                 cl[i] = c / p
-#
-#     def r_axe2(lg, cl, pdef):
-#         if cl:
-#             for i in range(0, lg):
-#                 c = cl[i]
-#                 cl[i] = c / pdef
-#
-#     def r_axe(lg, cs, ps, axe, pdef):
-#         if hasattr(sampled_parent, 'axe'):
-#             r_axe1(lg, getattr(cs, axe), getattr(ps, axe))
-#         else:
-#             r_axe2(lg, getattr(cs, axe), pdef)
-#
-#     lg = len(sampled_child.at)
-#     pscale = parent.matrix_local.to_scale()
-#     r_axe(lg, sampled_child, sampled_parent, 'scale_x', pscale.x)
-#     r_axe(lg, sampled_child, sampled_parent, 'scale_y', pscale.z)
-#     r_axe(lg, sampled_child, sampled_parent, 'scale_z', pscale.y)
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
-# def export_action(src, dst, fps, cfg):
-#     import re
-#
-#     def to_time(frame):
-#         return int((frame * 1000) / fps)
-#         # return float(f - src.frame_range.x) / frames_duration
-#     dst.id = cfg.id_of(src)
-#     dst.name = src.name
-#     if src.id_root == 'OBJECT':
-#         dst.target_kind = f3b.animations_kf_pb2.AnimationKF.tobject
-#     elif src.id_root == 'ARMATURE':
-#         dst.target_kind = f3b.animations_kf_pb2.AnimationKF.skeleton
-#     else:
-#         cfg.warning("unsupported id_roor => target_kind : " + src.id_root)
-#         return
-#
-#     frames_duration = max(0.001, float(src.frame_range.y - src.frame_range.x))
-#     dst.duration = to_time(frames_duration)
-#     clip = dst.clips.add()
-#     p = re.compile(r'pose.bones\["([^"]*)"\]\.(.*)')
-#     for fcurve in src.fcurves:
-#         target_name = fcurve.data_path
-#         dst_kf = None
-#         dst_kfs_coef = 1.0
-#         m = p.match(target_name)
-#         if m:
-#             clip.transforms.bone_name = m.group(1)
-#             target_name = m.group(2)
-#         if target_name == "location":
-#             dst_kf, dst_kfs_coef = vec3_array_index(clip.transforms.translation, fcurve.array_index)
-#         elif target_name == "scale":
-#             dst_kf, dst_kfs_coef = vec3_array_index(clip.transforms.scale, fcurve.array_index)
-#         elif target_name == "rotation_quaternion":
-#             dst_kf, dst_kfs_coef = quat_array_index(clip.transforms.rotation, fcurve.array_index)
-#         elif target_name == "rotation_euler":
-#             cfg.warning("unsupported : rotation_euler , use rotation_quaternion")
-#             continue
-#         else:
-#             cfg.warning("unsupported : " + target_name)
-#             continue
-#         if dst_kf is not None:
-#             has_bezier = False
-#             ats = []
-#             # values should be in ref Yup Zforward
-#             values = []
-#             # parameter of interpolation
-#             interpolations = []
-#             for src_kf in fcurve.keyframe_points:
-#                 ats.append(to_time(src_kf.co[0]))
-#                 values.append(src_kf.co[1] * dst_kfs_coef)
-#                 interpolations.append(cnv_interpolation(src_kf.interpolation))
-#                 has_bezier = has_bezier or ('BEZIER' == src_kf.interpolation)
-#             dst_kf.at.extend(ats)
-#             dst_kf.value.extend(values)
-#             dst_kf.interpolation.extend(interpolations)
-#             # each interpolation segment as  x in [0,1], y in same ref as values[]
-#             if has_bezier:
-#                 kps = fcurve.keyframe_points
-#                 for i in range(len(kps)):
-#                     bp = dst_kf.bezier_params.add()
-#                     if ('BEZIER' == kps[i].interpolation) and (i < (len(kps) - 1)):
-#                         p0 = kps[i]
-#                         p1 = kps[(i + 1)]
-#                         seg_duration = p1.co[0] - p0.co[0]
-#                         # print("kf co(%s) , left (%s), right(%s) : (%s, %s)" % ())
-#                         bp.h0_x = (p0.handle_right[0] - p0.co[0]) / seg_duration
-#                         bp.h0_y = p0.    handle_right[1] * dst_kfs_coef
-#                         bp.h1_x = (p1.handle_left[0] - p0.co[0]) / seg_duration
-#                         bp.h1_y = p1.handle_left[1] * dst_kfs_coef
-#             # print("res dst_kf %r" % (dst_kf))
-#
-#
-# def cnv_interpolation(inter):
-#     if 'CONSTANT' == inter:
-#         return f3b.animations_kf_pb2.KeyPoints.constant
-#     elif 'BEZIER' == inter:
-#         return f3b.animations_kf_pb2.KeyPoints.bezier
-#     return f3b.animations_kf_pb2.KeyPoints.linear
-#
-#
-# def vec3_array_index(vec3, idx):
-#     "find the target vec3 and take care of the axis change (to Y up, Z forward)"
-#     if idx == 0:
-#         # x => x
-#         return (vec3.x, 1.0)
-#     if idx == 1:
-#         # y => -z
-#         return (vec3.z, -1.0)
-#     if idx == 2:
-#         return (vec3.y, 1.0)
-#
-#
-# def quat_array_index(vec3, idx):
-#     "find the target quat and take care of the axis change (to Y up, Z forward)"
-#     if idx == 0:
-#         return (vec3.w, 1.0)
-#     if idx == 1:
-#         return (vec3.x, 1.0)
-#     if idx == 2:
-#         return (vec3.z, -1.0)
-#     if idx == 3:
-#         return (vec3.y, 1.0)
-# ------------------------------------------------------------------------------
-
 
 def export_obj_customproperties(src, dst_node, dst_data, cfg):
     keys = [k for k in src.keys() if not (k.startswith('_') or k.startswith('cycles'))]
@@ -1304,7 +950,7 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".f3b"
 
     # settings = bpy.props.PointerProperty(type=f3bSettingsScene)
-    option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = False)
+    option_export_selection = bpy.props.BoolProperty(name = "Export Selection", description = "Export only selected objects", default = True)
     option_export_tangents = bpy.props.BoolProperty(name = "Export Tangents", description = "", default = False)
     option_remove_doubles = bpy.props.BoolProperty(name = "Remove Doubles", description = "", default = True)
 
@@ -1319,14 +965,8 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         scene = context.scene
        
-        assets_path =   os.path.dirname(self.filepath) #scene.f3b.assets_path
+        assets_path =   os.path.dirname(self.filepath)
         print("Export in", assets_path)
-        # originalFrame = scene.frame_current
-        # originalSubframe = scene.frame_subframe
-        # self.restoreFrame = False
-        # self.beginFrame = scene.frame_start
-        # self.endFrame = scene.frame_end
-        # self.frameTime = 1.0 / (scene.render.fps_base * scene.render.fps)
 
         data = f3b.datas_pb2.Data()
         cfg = ExportCfg(is_preview=False, assets_path=assets_path,option_export_selection=self.option_export_selection,textures_to_dds=self.option_convert_texture_dds,export_tangents=self.option_export_tangents,remove_doubles=self.option_remove_doubles)
@@ -1335,9 +975,6 @@ class f3bExporter(bpy.types.Operator, ExportHelper):
         file = open(self.filepath, "wb")
         file.write(data.SerializeToString())
         file.close()
-
-        # if (self.restoreFrame):
-        #    scene.frame_set(originalFrame, originalSubframe)
 
         return {'FINISHED'}
 

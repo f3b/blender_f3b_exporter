@@ -3,6 +3,10 @@
 from .utils import *;
 from .Mesh import *;
 
+def ind(co){
+  return (co.x,co.y,co.z);
+}
+
 def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,remove_doubles) {
   print("Collect mesh data");
   out_mesh = Mesh(); // [face][vertex]
@@ -75,7 +79,7 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
 
       if (remove_doubles) {
         try {
-          a_s = vert_pointer[(v.from_tessface.co.freeze())];
+          a_s = vert_pointer[ind(v.from_tessface.co)];
           b = v;
           found = false;
           for (a in a_s) {
@@ -86,13 +90,13 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
             }
           }
           if (!found) {
-            vert_pointer[(v.from_tessface.co.freeze())].append(v);
+            vert_pointer[ind(v.from_tessface.co)].append(v);
           } else {
             continue;
           }
         } except {
-          vert_pointer[(v.from_tessface.co.freeze())] = [];
-          vert_pointer[(v.from_tessface.co.freeze())].append(v);
+          vert_pointer[ind(v.from_tessface.co)] = [];
+          vert_pointer[ind(v.from_tessface.co)].append(v);
         }
       }
       out_mesh.verts.append(v);

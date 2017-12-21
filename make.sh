@@ -40,6 +40,14 @@ function build {
     cp README.md build/tmp/f3b_exporter/
     cp LICENSE build/tmp/f3b_exporter/
 
+    for i in "$@" ; do
+        if [ "$i" = "+ddswriter" ]; then
+            echo "Bundle dds support"
+            cp -R bin build/tmp/f3b_exporter/
+            break
+        fi
+    done
+
     mkdir build/tmp/f3b_exporter/libs
 
 

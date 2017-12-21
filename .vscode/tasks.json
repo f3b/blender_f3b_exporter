@@ -7,7 +7,7 @@
      "tasks":[
         {
             "taskName":"build",
-            "args": ["dev"],
+            "args": ["dev","+ddswriter"],
              "isBuildCommand": true
         },
         {

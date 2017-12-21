@@ -1,0 +1,199 @@
+import bpy,re,os;
+from bpy_extras.io_utils import ExportHelper;
+from bpy.props import StringProperty, BoolProperty, EnumProperty;
+from bpy.types import Operator;
+
+CYCLES_EXPORTABLE_MATS_PATTERN=re.compile("\\!\s*([^;]+)");
+CYCLES_MAT_INPUT_PATTERN=re.compile("\\!\s*([^;]+)");
+
+FORMAT_EXT={
+    "bmp":"bmp",
+    "dds":"dds",
+    "hdr":"hdr",
+    "targa":"tga",
+    "jpeg":"jpg",
+    "targa_raw":"tga",
+    "targa":"tga",
+    "png":"png"
+};
+
+
+
+
+def findF3bMaterial(intree,filter){ // Return [node_connected_with_output,output_node]
+    for (n in intree.nodes){
+        if (isinstance(n,bpy.types.ShaderNodeOutputMaterial)){
+            if(len(n.inputs[0].links)==0){ // If Nothing connected
+                return [null,n];
+            }else{ // If something connected
+                fn=n.inputs[0].links[0].from_node
+                if ( isinstance(fn, bpy.types.ShaderNodeGroup )){ // Check if is a NodeTree (only nodetree can define f3b materials)
+                    if(CYCLES_EXPORTABLE_MATS_PATTERN.match(fn.node_tree.name)&&(filter==null||filter==fn.node_tree.name)){ // Check name is in exportable format and == filter
+                        return [fn,n];
+                    }
+                }
+                // If not is not exportable/not f3b
+                return [null,n];
+            }
+        }
+    }
+    // Create an unconnected mat out if not present
+    n=intree.nodes.new('ShaderNodeOutputMaterial'); 
+    return [null,n];
+}
+
+
+
+def run(path,mat){
+    for (obj in bpy.context.scene.objects){ 
+        if (obj.select){ 
+            for (i in range(0,len(obj.material_slots))){
+                material=obj.material_slots[i].material;
+                if(!material){
+                    continue;
+                }
+                snode=findF3bMaterial(material.node_tree,mat); // Find Node connected with Material output
+                if(!snode[0]){ // If no exportable node is found, create a new one and connect it to mat output
+                    snode[0]=material.node_tree.nodes.new('ShaderNodeGroup');
+                    snode[0].node_tree=bpy.data.node_groups[mat];
+                    material.node_tree.links.new(snode[0].outputs[0], snode[1].inputs[0]);
+                    material.node_tree.links.new(snode[0].outputs[1], snode[1].inputs[2]);
+                }              
+
+                if(path){
+                    snode=snode[0]; // We don't need the output anymore
+                    // Get all inputs of the exportable node
+                    for( input in snode.inputs){
+                        input_name=CYCLES_MAT_INPUT_PATTERN.match(input.name); // Check if is an exportable input
+                        if(input_name){ 
+                            input_name=input_name.group(1);
+                            // Find assignable image
+                            file_name=(material.name+"_"+input_name);
+                            file_path=path+file_name;
+                            for( k in FORMAT_EXT){
+                                ext=FORMAT_EXT[k];
+                                file=file_path+"."+ext;
+                                if( os.path.isfile(file)){
+                                    print("Set "+input_name);
+                                    bimg=None
+                                    if(input.is_linked&&input.links[0].from_node.type == "TEX_IMAGE"){  // If already connect to a texture node, use it
+                                        bimg=input.links[0].from_node;
+                                    }else{ // If not, create a new texture node and connect it
+                                        bimg=material.node_tree.nodes.new('ShaderNodeTexImage');
+                                        material.node_tree.links.new(bimg.outputs[0], input);
+                                    }
+                                    bimg.image=bpy.data.images.load(file)
+                                    bimg.image.name=file_name;
+                                    break;
+                                }
+                            }           
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+                    
+                  
+              
+              
+
+
+
+class F3bTextureSelector(Operator, ExportHelper){
+   bl_idname = "f3b_tools.textures_selector";
+    bl_label = "Select textures path";
+    filename_ext = "";
+
+    use_filter_folder = true;
+    
+    def invoke(self, context, event){
+       self.filepath = "";
+       context.window_manager.fileselect_add(self);
+       return {'RUNNING_MODAL'};
+    }
+    
+   def execute(self, context){
+        path=self.filepath;
+        if (not os.path.isdir(path)){
+             path=os.path.split(os.path.abspath(path))[0]+os.path.sep;
+        }
+        run(path,'!cr/Rendering/PBR.j3md; JMonkeyEngine') ;
+        return {"FINISHED"};
+    }
+}
+
+
+
+
+ def execute_operator(self, context){
+    eval('bpy.ops.' + self.primitive + '()');
+ }
+
+class F3bMaterialsSelector(bpy.types.PropertyGroup){
+    mode_options = [
+        ("mesh.primitive_plane_add", "Plane", '', 'MESH_PLANE', 0),
+        ("mesh.primitive_cube_add", "Cube", '', 'MESH_CUBE', 1),
+        ("mesh.primitive_circle_add", "Circle", '', 'MESH_CIRCLE', 2),
+        ("mesh.primitive_uv_sphere_add", "UV Sphere", '', 'MESH_UVSPHERE', 3),
+        ("mesh.primitive_ico_sphere_add", "Ico Sphere", '', 'MESH_ICOSPHERE', 4),
+        ("mesh.primitive_cylinder_add", "Cylinder", '', 'MESH_CYLINDER', 5),
+        ("mesh.primitive_cone_add", "Cone", '', 'MESH_CONE', 6),
+        ("mesh.primitive_torus_add", "Torus", '', 'MESH_TORUS', 7)
+    ];
+
+    primitive = bpy.props.EnumProperty(
+        items=mode_options,
+        description="offers....",
+        default="mesh.primitive_plane_add",
+        update=execute_operator
+    );
+}
+
+
+class F3bMenu(bpy.types.Panel){
+    bl_label = "F3b"
+    bl_idname = "MATERIAL_PT_layout"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "material"
+
+    def draw(self, context){
+        layout = self.layout;
+
+        scene = context.scene;
+
+        col = layout.column()
+        col.label(text="F3b Material: ")
+        col.prop(bpy.props.PointerProperty(type=F3bMaterialsSelector), "F3b Material") //FIXME
+
+
+        row = layout.row()
+        row.operator("f3b_tools.textures_selector")
+
+    }
+}
+
+
+
+def register(){
+    bpy.utils.register_class(F3bTextureSelector);
+ //   bpy.utils.register_class(F3bMenu);
+
+    
+}
+
+
+def unregister(){
+    bpy.utils.unregister_class(F3bTextureSelector);
+   // bpy.utils.unregister_class(F3bMenu);
+
+}
+   
+
+if (__name__ == "__main__"){
+    register();
+    bpy.ops.f3b_tools.textures_selector('INVOKE_DEFAULT');
+}
+
