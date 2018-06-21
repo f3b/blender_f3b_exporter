@@ -31,7 +31,7 @@ from .exporter_utils import *
 import re,os
 import subprocess
 
-DDS_WRITER_PATH=os.path.dirname(__file__)+"/bin/dds_writer.sh"
+DDS_WRITER_PATH=os.path.dirname(__file__)+"/bin/DDSWriter-dev-"+("win32.exe" if os.name=="nt" else "linux32" )
 DDS_SUPPORT=True
 
 class ExportCfg:
@@ -292,7 +292,8 @@ def export_all_materials(scene, data, cfg):
                 if cfg.need_update(src_mat):
                     dst_mat = data.materials.add()
                     export_material(src_mat, dst_mat, cfg)
-    __async_wait()
+    exportDDSs()
+    # __async_wait()
 
 
 def export_all_lights(scene, data, cfg):
@@ -455,23 +456,23 @@ def dumpCyclesExportableMats(intree,outarr,parent=None):
         dumpCyclesExportableMats(intree.node_tree,outarr,intree)
     except: pass
 
-from  concurrent.futures import ThreadPoolExecutor
-_ASYNC_POOL= ThreadPoolExecutor(max_workers=2)
-_ASYNC_POOL_W=[]
+# from  concurrent.futures import ThreadPoolExecutor
+# _ASYNC_POOL= ThreadPoolExecutor(max_workers=2)
+# _ASYNC_POOL_W=[]
 
-def __async(f,*a):
-   # f(*a)
-   _ASYNC_POOL_W.append(_ASYNC_POOL.submit( f, *a))
+# def __async(f,*a):
+#    # f(*a)
+#    _ASYNC_POOL_W.append(_ASYNC_POOL.submit( f, *a))
 
 
 
-def __async_wait():
-    print("Wait for async tasks")
-    global _ASYNC_POOL_W    
-    for s  in  _ASYNC_POOL_W:
-        s.result()
-    _ASYNC_POOL_W=[]
-    print("Done")
+# def __async_wait():
+#     print("Wait for async tasks")
+#     global _ASYNC_POOL_W    
+#     for s  in  _ASYNC_POOL_W:
+#         s.result()
+#     _ASYNC_POOL_W=[]
+#     print("Done")
 
 
 
@@ -497,7 +498,7 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
         prop=dst_mat.properties.add()
         prop.id=input_label
         solid=len(input_node.outputs[1].links)==0 #If alpha is not connected= solid
-        __async(export_tex,solid,args,input_node.image,prop.texture,cfg)
+        export_tex(solid,args,input_node.image,prop.texture,cfg)
         print("Found texture")
     elif input_type=="GROUP": # Custom nodes groups as input
         name=input_node.node_tree.name
@@ -535,9 +536,9 @@ def parseNode(input_node,input_type,dst_mat,input_label,cfg):
                 r,g,b,a=input_node.inputs
                 
                 r=r.default_value
-                g=r.default_value
-                b=r.default_value
-                a=r.default_value
+                g=g.default_value
+                b=b.default_value
+                a=a.default_value
                 
                 prop=dst_mat.properties.add()
                 prop.id=input_label
@@ -599,7 +600,28 @@ def export_material(src_mat, dst_mat, cfg):
                     input_type=input_node.type    
                     parseNode(input_node,input_type,dst_mat,input_label,cfg)
                 
-             
+CONVERT_TO_DDS_QUEUE=[]       
+
+def exportDDSs():
+    xinputs=""
+    xoutputs=""
+    xformats=""
+    for f in CONVERT_TO_DDS_QUEUE:
+        if xinputs!="":
+            xinputs+=","
+        xinputs+=f[1]
+        if xoutputs!="":
+            xoutputs+=","
+        xoutputs+=f[2]
+        if xformats!="":
+            xformats+=","
+        xformats+=f[0]
+    MULTIRES="--multires :100%,-low:50%,-lower:50%,-lowest:16px"
+    command=DDS_WRITER_PATH+" --use-opengl --gen-mipmaps --format "+xformats+" --inlist "+xinputs+"  --outlist "+xoutputs+" "+ MULTIRES
+    print("Run",command)
+    print(subprocess.getoutput(command))
+    for f in CONVERT_TO_DDS_QUEUE:
+        os.remove(f[1]) 
                 
 EXT_FORMAT_MAP={"targa":"tga","jpeg":"jpg","targa_raw":"tga"}
 def export_tex(solid,args,src, dst, cfg):
@@ -679,10 +701,8 @@ def export_tex(solid,args,src, dst, cfg):
             elif format=="UNCOMPRESSED":
                 format="ARGB8"
 
-            command=DDS_WRITER_PATH+" --use_lwjgl --gen-mipmaps --format "+format+" --in "+output_file+"  --out "+dds_file
-            print("Run",command)
-            print(subprocess.getoutput(command))
-            os.remove(output_file)
+            CONVERT_TO_DDS_QUEUE.append((format,output_file,dds_file));
+          
     else:
         print(base_name,"already up to date")
     if cfg.textures_to_dds and DDS_SUPPORT:  ext=".dds"
@@ -717,9 +737,9 @@ def export_light(src, dst, cfg):
         for node in src.node_tree.nodes:
             if node.type == "EMISSION":
                 cnv_color(node.inputs[0].default_value, dst.color)
-                if kind=="POINT":
-                        dst.radial_distance.max=node.inputs[1].default_value
-                dst.intensity = 1 #node.inputs[1].default_value
+                #if kind=="POINT":
+                 #       dst.radial_distance.max=node.inputs[1].default_value
+                dst.intensity = node.inputs[1].default_value
                 dst.cast_shadow = src.cycles.cast_shadow
                 processed=True                
                 
