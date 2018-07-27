@@ -30,9 +30,16 @@ from .exporter_utils import *
 
 import re,os
 import subprocess
+from  concurrent.futures import ThreadPoolExecutor
 
-DDS_WRITER_PATH=os.path.dirname(__file__)+"/bin/DDSWriter-dev-"+("win32.exe" if os.name=="nt" else "linux32" )
-DDS_SUPPORT=True
+DDS_SUPPORT=False
+DDS_WRITER_PATH=os.path.dirname(__file__)+"/bin/DDSWriter."
+if os.name=="nt":
+    DDS_WRITER_PATH+="win64.exe"
+    DDS_SUPPORT=True
+else:
+    DDS_WRITER_PATH+="linux64"
+    DDS_SUPPORT=True
 
 class ExportCfg:
     def __init__(self, is_preview=False, assets_path="/tmp",option_export_selection=False,textures_to_dds=False,export_tangents=False,remove_doubles=False):
@@ -78,6 +85,7 @@ class ExportCfg:
 
 def export(scene, data, cfg):
     export_all_tobjects(scene, data, cfg)
+    export_all_speakers(scene, data, cfg)
     export_all_geometries(scene, data, cfg)
     export_all_materials(scene, data, cfg)
     export_all_lights(scene, data, cfg)
@@ -85,10 +93,11 @@ def export(scene, data, cfg):
     export_all_actions(scene, data, cfg)
     export_all_physics(scene, data, cfg)
 
+
 def export_all_tobjects(scene, data, cfg):
     for obj in scene.objects:
         if obj.hide_render or (cfg.option_export_selection and not obj.select):
-            print("Skip ",obj,"not selected/render disabled")
+           # print("Skip ",obj,"not selected/render disabled")
             continue
         if cfg.need_update(obj):
             tobject = data.tobjects.add()
@@ -107,7 +116,8 @@ def export_all_tobjects(scene, data, cfg):
             else:
                 cnv_rotation(helpers.rot_quat(obj), tobject.rotation)
             if obj.parent is not None:
-                add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj.parent), f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), cfg)
+                add_relation_raw(data.relations, 
+                 cfg.id_of(obj.parent), cfg.id_of(obj), cfg)
             export_obj_customproperties(obj, tobject, data, cfg)
         else:
             print("Skip ",obj,"already exported")
@@ -258,14 +268,70 @@ def export_rb(ob, phy_data, data, cfg):
     rigidbody.collisionGroup = collision_group
     rigidbody.collisionMask = collision_group
 
-    add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(ob), f3b.datas_pb2.RigidBody.__name__, rigidbody.id, cfg)
+    add_relation_raw(data.relations,rigidbody.id, cfg.id_of(ob), cfg)
     return phy_data
 
+def export_audio(src, dst, cfg):
+    base_name=src.name
+    ext="."+src.filepath.lower().split(".")[-1]
+    if ext == "":
+        ext="."+src.filepath_raw.lower().split(".")[-1]
+    if ext == "":
+        ext="."+src.name.lower().split(".")[-1]
+
+    origin_file=bpy.path.abspath(src.filepath)
+    print("Base sound name",base_name,"assets path",cfg.assets_path)
+    output_file=os.path.join(cfg.assets_path,"Sounds",base_name)+ext  
+    print("Write sound in",output_file)
+
+    output_parent=os.path.dirname(output_file)
+        
+    is_packed=src.packed_file
+
+    if cfg.need_update(src):       
+    
+        if not os.path.exists(output_parent):
+            os.makedirs(output_parent)
+          
+        if is_packed:
+            print(base_name,"is packed inside the blend file. It will be extracted in",output_file)
+            with open(output_file, 'wb') as f:
+                f.write(src.packed_file.data)
+        else:
+            print(origin_file,"will be copied in",output_file)
+            import shutil
+            if origin_file != output_file:
+                shutil.copyfile(origin_file, output_file)            
+    else:
+        print(base_name,"already up to date")
+    dst.rpath = "Sounds/"+base_name+ext
+    print("Set rpath to", dst.rpath)
+
+def export_all_speakers(scene, data, cfg):
+    for obj in scene.objects:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
+            #print("Skip ",obj,"not selected/render disabled")
+            continue
+        if obj.type == 'SPEAKER':
+            if cfg.need_update(obj.data):
+                dst_speaker = data.speakers.add()
+                dst_speaker.id = cfg.id_of(obj.data)
+                dst_speaker.name = obj.name
+                export_audio(obj.data.sound,dst_speaker,cfg)
+                dst_speaker.volume = obj.data.volume
+                dst_speaker.pitch = obj.data.pitch
+                dst_speaker.distance_max=obj.data.distance_max
+                dst_speaker.distance_reference=obj.data.distance_reference
+                dst_speaker.attenuation = obj.data.attenuation
+            add_relation_raw(data.relations,  
+            cfg.id_of(obj.data),  cfg.id_of(obj),cfg)
+
+        
 
 def export_all_geometries(scene, data, cfg):
     for obj in scene.objects:
         if obj.hide_render or (cfg.option_export_selection and not obj.select):
-            print("Skip ",obj,"not selected/render disabled")
+            #sprint("Skip ",obj,"not selected/render disabled")
             continue
         if obj.type == 'MESH':
             if len(obj.data.polygons) != 0 and cfg.need_update(obj.data):
@@ -274,10 +340,12 @@ def export_all_geometries(scene, data, cfg):
                     # several object can share the same mesh
                     for obj2 in scene.objects:
                         if obj2.data == obj.data: 
-                            add_relation_raw(data.relations, f3b.datas_pb2.Mesh.__name__, mesh.id, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj2), cfg)
+                            add_relation_raw(data.relations, 
+                            
+                             mesh.id,cfg.id_of(obj2), cfg)
                     if material_index > -1 and material_index < len(obj.material_slots):
                         src_mat = obj.material_slots[material_index].material
-                        add_relation_raw(data.relations, f3b.datas_pb2.Mesh.__name__, mesh.id, f3b.datas_pb2.Material.__name__, cfg.id_of(src_mat), cfg)
+                        add_relation_raw(data.relations,   cfg.id_of(src_mat),mesh.id, cfg)
             else:
                 print("Skip ",obj,"already exported")
 
@@ -292,8 +360,7 @@ def export_all_materials(scene, data, cfg):
                 if cfg.need_update(src_mat):
                     dst_mat = data.materials.add()
                     export_material(src_mat, dst_mat, cfg)
-    exportDDSs()
-    # __async_wait()
+    if DDS_SUPPORT and cfg.textures_to_dds: exportDDSs()
 
 
 def export_all_lights(scene, data, cfg):
@@ -302,26 +369,26 @@ def export_all_lights(scene, data, cfg):
             continue
         if obj.type == 'LAMP':
             src_light = obj.data
-            if 1==1:#cfg.need_update(src_light):
+            if cfg.need_update(src_light):
                 dst_light = data.lights.add()
                 export_light(src_light, dst_light, cfg)
-                add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Light.__name__, cfg.id_of(src_light), cfg)
+            add_relation_raw(data.relations,  cfg.id_of(src_light),cfg.id_of(obj), cfg)
 
 
-def add_relation(relations, e1, e2, cfg):
-    add_relation_raw(relations, type(e1).__name__, e1.id, type(e2).__name__, e2.id, cfg)
 
 
-def add_relation_raw(relations, t1, ref1, t2, ref2, cfg):
+
+def add_relation_raw(relations ,ref1,ref2, cfg):
     rel = relations.add()
-    if t1 <= t2:
-        rel.ref1 = ref1
-        rel.ref2 = ref2
-        cfg.info("add relation: '%s'(%s) to '%s'(%s)" % (t1, ref1, t2, ref2))
-    else:
-        rel.ref1 = ref2
-        rel.ref2 = ref1
-        cfg.info("add relation: '%s'(%s) to '%s'(%s)" % (t2, ref2, t1, ref1))
+    # print(t1+ "      "+t2)
+    # if t1 <= t2:
+    rel.ref1 = ref1
+    rel.ref2 = ref2
+    cfg.info("add relation: '%s' to '%s'" % ( ref1, ref2))
+    # else:
+        # rel.ref1 = ref2
+        # rel.ref2 = ref1
+        # cfg.info("add relation: '%s'(%s) to '%s'(%s)" % (t2, ref2, t1, ref1))
 
 
 def export_meshes(src_geometry, meshes, scene, cfg):
@@ -456,23 +523,11 @@ def dumpCyclesExportableMats(intree,outarr,parent=None):
         dumpCyclesExportableMats(intree.node_tree,outarr,intree)
     except: pass
 
-# from  concurrent.futures import ThreadPoolExecutor
-# _ASYNC_POOL= ThreadPoolExecutor(max_workers=2)
-# _ASYNC_POOL_W=[]
-
-# def __async(f,*a):
-#    # f(*a)
-#    _ASYNC_POOL_W.append(_ASYNC_POOL.submit( f, *a))
 
 
 
-# def __async_wait():
-#     print("Wait for async tasks")
-#     global _ASYNC_POOL_W    
-#     for s  in  _ASYNC_POOL_W:
-#         s.result()
-#     _ASYNC_POOL_W=[]
-#     print("Done")
+
+
 
 
 
@@ -603,25 +658,67 @@ def export_material(src_mat, dst_mat, cfg):
 CONVERT_TO_DDS_QUEUE=[]       
 
 def exportDDSs():
-    xinputs=""
-    xoutputs=""
-    xformats=""
+    BATCH_SIZE=16
+    CONCURRENT_EXPORTS=1
+    IS_FIRST=True
+    XMX="2000M"
+    if XMX!="":
+        XMX="-Xmx"+XMX
+    if CONCURRENT_EXPORTS>1:
+        export_pool= ThreadPoolExecutor(max_workers=CONCURRENT_EXPORTS)
+        export_poolw=[]
+    ii=0
+    while True:
+        xinputs=""
+        xoutputs=""
+        xformats=""
+        # r=range(ii,len(CONVERT_TO_DDS_QUEUE))
+        n=BATCH_SIZE
+        if len(CONVERT_TO_DDS_QUEUE)<n:
+            n=len(CONVERT_TO_DDS_QUEUE)
+        for fi in range(0,n):
+            f=CONVERT_TO_DDS_QUEUE[ii]
+            if xinputs!="":
+                xinputs+=","
+            xinputs+=f[1]
+            if xoutputs!="":
+                xoutputs+=","
+            xoutputs+=f[2]
+            if xformats!="":
+                xformats+=","
+            xformats+=f[0]
+            ii+=1
+            if ii==len(CONVERT_TO_DDS_QUEUE):
+                break;
+        MULTIRES="--multires :100%,-low:50%,-lower:50%,-lowest:16px"
+        # command=DDS_WRITER_PATH+" --use-opengl --gen-mipmaps --format "+xformats+" --inlist "+xinputs+"  --outlist "+xoutputs+" "+ MULTIRES
+        command=[DDS_WRITER_PATH,"--use-opengl","--gen-mipmaps","--format ",xformats,"--inlist ",xinputs,"--outlist",xoutputs]
+        if MULTIRES!="":
+            command.append("--multires")
+            command.append(MULTIRES)
+        print("Run",command)
+        if CONCURRENT_EXPORTS>1:
+            c=export_pool.submit(  subprocess.call,command)
+            export_poolw.append(c)
+            if IS_FIRST: #Always wait for the first call to ensure all resources are extracted properly
+                c.result()
+                IS_FIRST=False
+        else:
+            subprocess.call(command)
+            # )
+        if ii==len(CONVERT_TO_DDS_QUEUE):
+            break;
+ 
+    if CONCURRENT_EXPORTS>1: 
+        for s  in  export_poolw:
+            s.result()
+        export_pool.shutdown(True)
+    # 
+    # print(subprocess.getoutput(command))
     for f in CONVERT_TO_DDS_QUEUE:
-        if xinputs!="":
-            xinputs+=","
-        xinputs+=f[1]
-        if xoutputs!="":
-            xoutputs+=","
-        xoutputs+=f[2]
-        if xformats!="":
-            xformats+=","
-        xformats+=f[0]
-    MULTIRES="--multires :100%,-low:50%,-lower:50%,-lowest:16px"
-    command=DDS_WRITER_PATH+" --use-opengl --gen-mipmaps --format "+xformats+" --inlist "+xinputs+"  --outlist "+xoutputs+" "+ MULTIRES
-    print("Run",command)
-    print(subprocess.getoutput(command))
-    for f in CONVERT_TO_DDS_QUEUE:
-        os.remove(f[1]) 
+        try:
+            os.remove(f[1]) 
+        except: pass
                 
 EXT_FORMAT_MAP={"targa":"tga","jpeg":"jpg","targa_raw":"tga"}
 def export_tex(solid,args,src, dst, cfg):
@@ -780,7 +877,8 @@ def export_all_skeletons(scene, data, cfg):
             if cfg.need_update(src_skeleton):
                 dst_skeleton = data.skeletons.add()
                 export_skeleton(src_skeleton, dst_skeleton, cfg)
-            add_relation_raw(data.relations, f3b.datas_pb2.TObject.__name__, cfg.id_of(obj), f3b.datas_pb2.Skeleton.__name__, cfg.id_of(src_skeleton), cfg)
+            add_relation_raw(data.relations, cfg.id_of(obj), 
+             cfg.id_of(src_skeleton), cfg)
 
 
 def export_skeleton(src, dst, cfg):
@@ -825,22 +923,23 @@ def export_all_actions(scene, dst_data, cfg):
             for tracks in obj.animation_data.nla_tracks:
                 for strip in tracks.strips:
                     action = strip.action
+                    if action == None: continue
                     if cfg.need_update(action):
                         #dst = dst_data.Extensions[f3b.animations_kf_pb2.animations_kf].add()
                         dst = dst_data.animations_kf.add()
                         # export_action(action, dst, fps, cfg)
-                        export_obj_action(scene, obj, action, dst, fps, cfg)
+                        export_obj_action(tracks.name,scene, obj, action, dst, fps, cfg)
                         # relativize_bones(dst, obj)
                     add_relation_raw(
                         dst_data.relations,
-                        f3b.datas_pb2.TObject.__name__, cfg.id_of(obj),
-                        f3b.animations_kf_pb2.AnimationKF.__name__, cfg.id_of(action),
+                  
+                 cfg.id_of(action), cfg.id_of(obj),
                         cfg)
             obj.animation_data.action = action_current
     scene.frame_set(frame_current, frame_subframe)
 
 
-def export_obj_action(scene, obj, src, dst, fps, cfg):
+def export_obj_action(name,scene, obj, src, dst, fps, cfg):
     """
     export action by sampling matrixes of obj over frame.
     side effects :
@@ -852,7 +951,8 @@ def export_obj_action(scene, obj, src, dst, fps, cfg):
 
     obj.animation_data.action = src
     dst.id = cfg.id_of(src)
-    dst.name = src.name
+    print("Export animation "+name)
+    dst.name = name
     frame_start = int(src.frame_range.x)
     frame_end = int(src.frame_range.y + 1)
     dst.duration = to_time(max(1, float(frame_end - frame_start)))
@@ -953,7 +1053,8 @@ def export_obj_customproperties(src, dst_node, dst_data, cfg):
                 cnv_vec3(value, param.vvec3)
             elif isinstance(value, mathutils.Quaternion):
                 cnv_qtr(value, param.vqtr)
-        add_relation(dst_data.relations, dst_node, custom_params, cfg)
+
+        add_relation_raw(dst_data.relations,   custom_params.id,  dst_node.id, cfg)
 
 
 import bpy

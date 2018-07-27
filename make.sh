@@ -9,6 +9,14 @@ then
 fi
 source build/bash_colors.sh
 
+if  [ "$PYTHON" = "" ];
+then
+    export PYTHON="`which python3`"
+    if [ "$PYTHON" = "" ];
+    then
+        export   PYTHON="`which python`"
+    fi
+fi
 function checkErrors {
     if [ $? -ne 0 ]; then 
         clr_red "Build failed."
@@ -16,6 +24,7 @@ function checkErrors {
     fi
 }
 
+echo "Use python $PYTHON"
 
 
 function compilePy99 {
@@ -25,7 +34,7 @@ function compilePy99 {
     fi
    base=`basename $1`
    noext="${base%.*}"
-   python3 build/py99.py $1 build/tmp/f3b_exporter/$noext.py
+   $PYTHON build/py99.py $1 build/tmp/f3b_exporter/$noext.py
 }
 export -f compilePy99
 
@@ -43,7 +52,13 @@ function build {
     for i in "$@" ; do
         if [ "$i" = "+ddswriter" ]; then
             echo "Bundle dds support"
-            cp -R bin build/tmp/f3b_exporter/
+            mkdir -p build/tmp/f3b_exporter/bin/
+            DDS_VERSION="1.2.1"
+            wget "https://github.com/riccardobl/DDSWriter/releases/download/$DDS_VERSION/DDSWriter-$DDS_VERSION-linux64" -O  build/tmp/f3b_exporter/bin/DDSWriter.linux64
+            wget "https://github.com/riccardobl/DDSWriter/releases/download/$DDS_VERSION/DDSWriter-$DDS_VERSION-win64.exe" -O build/tmp/f3b_exporter/bin/DDSWriter.win64.exe
+            wget "https://github.com/riccardobl/DDSWriter/releases/download/$DDS_VERSION/DDSWriter-$DDS_VERSION.jar" -O build/tmp/f3b_exporter/bin/DDSWriter.jar
+            chmod +x   build/tmp/f3b_exporter/bin/DDSWriter.linux64
+       #     cp -R bin build/tmp/f3b_exporter/
             break
         fi
     done
@@ -74,11 +89,16 @@ function build {
         cp -f protobuf.pylib ../f3b_exporter/libs/
         cd ../../../
     fi
-
+    if [ "$M2_HOME" = "" ];
+    then
+        M2_HOME="$HOME/.m2"
+    fi
     #F3b
     if [ "$1" = "dev" ]; then
       clr_green "Build dev version"
-      cp -f "$HOME/.m2/repository/wf/frk/f3b/f3b/dev/f3b-dev-python.zip" build/tmp/f3b_exporter/libs/f3b.pylib
+      echo "Copy f3b protocol from  $M2_HOME/repository/wf/frk/f3b/f3b/dev/f3b-dev-python.zip"
+      rm -f  build/tmp/f3b_exporter/libs/f3b.pylib
+      cp -f "$M2_HOME/repository/wf/frk/f3b/f3b/dev/f3b-dev-python.zip" build/tmp/f3b_exporter/libs/f3b.pylib
     else
       clr_green "Build production version"
       latest_version=`curl https://dl.bintray.com/riccardo/f3b/wf/frk/f3b/version.txt`
