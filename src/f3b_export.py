@@ -82,9 +82,48 @@ class ExportCfg:
         print("ERROR: " + txt)
 
 
+def export_all_forcefields(scene,data,cfg):
+    if scene.use_gravity:
+        force_field=data.cr_forcefields.add()
+        force_field.id="sceneGravity"
+        cnv_vec3(cnv_toVec3ZupToYup(scene.gravity), force_field.gravity.strength)
+
+def export_all_collisionplane(scene,data,cfg):
+    for obj in scene.objects:
+        if  obj.type!= 'MESH' or obj.hide_render or (cfg.option_export_selection and not obj.select):
+            #print("Skip ",obj,"not selected/render disabled")
+            continue
+        for m in obj.modifiers:
+            if m.type == "COLLISION":
+                cfg.need_update(obj)
+                cfg.need_update(obj.data)
+                cplane=data.cr_collisionplanes.add()
+                cplane.id = cfg.id_of(obj)
+                cplane.name = obj.name
+                wm = obj.matrix_world
+                cnv_vec3(cnv_toVec3ZupToYup(wm.to_translation()), cplane.point)
+                rot=wm.to_quaternion()
+                normal=None
+                ps = obj.data.polygons
+                for p in ps:
+                    normal=(p.normal)
+                    break
+                cnv_vec3(cnv_toVec3ZupToYup(rot*normal), cplane.normal)
+                cnv_vec3(cnv_toVec3ZupToYup(obj.dimensions), cplane.extents)
+                cplane.damping=m.settings.damping_factor
+                cplane.damping_randomness=m.settings.damping_random
+                cplane.friction=m.settings.friction_factor
+                cplane.friction_randomness=m.settings.friction_random
+                cplane.stickiness=m.settings.stickiness
+                cplane.permeability=m.settings.permeability
+                cplane.kill_particles=m.settings.use_particle_kill
+               
+        
 
 def export(scene, data, cfg):
+    if hasattr(f3b.datas_pb2.Data,"cr_collisionplanes") :export_all_collisionplane(scene, data, cfg)
     export_all_tobjects(scene, data, cfg)
+    if hasattr(f3b.datas_pb2.Data,"cr_emitters")  : export_all_emitters(scene,data,cfg)
     export_all_speakers(scene, data, cfg)
     export_all_geometries(scene, data, cfg)
     export_all_materials(scene, data, cfg)
@@ -92,6 +131,8 @@ def export(scene, data, cfg):
     export_all_skeletons(scene, data, cfg)
     export_all_actions(scene, data, cfg)
     export_all_physics(scene, data, cfg)
+    if hasattr(f3b.datas_pb2.Data,"cr_forcefields"): export_all_forcefields(scene,data,cfg)
+
 
 
 def export_all_tobjects(scene, data, cfg):
@@ -326,7 +367,93 @@ def export_all_speakers(scene, data, cfg):
             add_relation_raw(data.relations,  
             cfg.id_of(obj.data),  cfg.id_of(obj),cfg)
 
+  
+def export_all_emitters(scene, data, cfg):
+    for obj in scene.objects:
+        if obj.hide_render or (cfg.option_export_selection and not obj.select):
+            #print("Skip ",obj,"not selected/render disabled")
+            continue
+        for i in range(len(obj.particle_systems)):
+            src_p = obj.particle_systems[i] #Emitter
+            src_e = src_p.settings #Settings
+            if src_e.type != "EMITTER": continue
+            if cfg.need_update(src_e) or 1==1:  
+                dst_e = data.cr_emitters.add()
+                dst_e.id=cfg.id_of(obj)+"_em_"+str(i)
+                dst_e.name=src_e.name
+                print("Export particle emitter " +src_e.name)
+                # fps=(1.0/src_e.timestep)
+                frame_end=src_e.frame_end
+                frame_start=src_e.frame_start
+                time_end=frame_end*src_e.timestep
+                time_start=frame_start*src_e.timestep
+                
+                frame_delta=frame_end-frame_start
+                time_delta=time_end-time_start
         
+                dst_e.emission_delay=time_start
+                dst_e.emission_duration=time_delta
+                dst_e.particles_per_emission=src_e.count
+
+                # dst_e.time_end=frame_end/fps
+
+                lifetime=src_e.lifetime*src_e.timestep
+                randlife=src_e.lifetime_random*src_e.timestep
+
+                dst_e.min_life=lifetime* (1.0 - randlife)
+                dst_e.max_life=lifetime
+                # dst_e.particles_per_second=int(src_e.count/time_delta)
+
+
+                if src_e.emit_from == "VERT":
+                    dst_e.emit_from=  f3b.datas_pb2.CRParticleEmitter.emit_from_verts
+                elif src_e.emit_from=="FACE":
+                    dst_e.emit_from=  f3b.datas_pb2.CRParticleEmitter.emit_from_faces
+                else:
+                    dst_e.emit_from= f3b.datas_pb2.CRParticleEmitter.emit_from_volume
+
+                dst_e.velocity.normal_factor=src_e.normal_factor
+                dst_e.velocity.tangent_factor=src_e.tangent_factor
+                dst_e.velocity.tangent_phase=src_e.tangent_phase
+                cnv_vec3(cnv_toVec3ZupToYup(src_e.object_align_factor),  dst_e.velocity.object_align_factor)
+                dst_e.velocity.object_factor=src_e.object_factor
+                dst_e.velocity.variation=src_e.factor_random
+
+                if src_e.physics_type=="NEWTON":
+                    dst_e.newtonian_influencer.brownian=src_e.brownian_factor
+                    dst_e.newtonian_influencer.drag=src_e.drag_factor
+                    dst_e.newtonian_influencer.damp=src_e.damping
+                    dst_e.timestep=scene.render.fps*src_e.timestep
+                    dst_e.newtonian_influencer.die_on_hit=src_e.use_die_on_collision
+                
+                mesh=None
+                if src_e.render_type == "BILLBOARD":
+                    dst_e.billboard_renderer.size=src_e.particle_size
+                    dst_e.billboard_renderer.size_variation=src_e.size_random
+                    mesh=src_e.billboard_object
+                else:
+                    dst_e.object_renderer.size=src_e.particle_size
+                    dst_e.object_renderer.size_variation=src_e.size_random
+                    mesh=src_e.dupli_object
+
+
+            
+                dst_e.rotation.random_factor=src_e.rotation_factor_random
+                dst_e.rotation.velocity=src_e.angular_velocity_factor
+                ef_weight_damper=src_e.effector_weights.all
+                dst_e.forcefields_influence.gravity=src_e.effector_weights.gravity*ef_weight_damper
+
+                if mesh.type == 'MESH':
+                    cfg.need_update(mesh.data)
+                    if len(mesh.data.polygons) != 0:
+                        meshes = export_meshes(mesh, dst_e.meshes, scene, cfg)
+                        for material_index, m in meshes.items():
+                            if material_index > -1 and material_index < len(mesh.material_slots):
+                                src_mat = mesh.material_slots[material_index].material
+                                dst_mat = dst_e.materials.add()
+                                export_material(src_mat, dst_mat, cfg)
+                               
+            add_relation_raw(data.relations,    cfg.id_of(obj),  dst_e.id,cfg)
 
 def export_all_geometries(scene, data, cfg):
     for obj in scene.objects:
