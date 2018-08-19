@@ -44,6 +44,21 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
       q += 1;
     }
 
+    // Collect colors if set
+    if (len(src_mesh.tessface_vertex_colors) >= 1) {
+      face_colors = src_mesh.tessface_vertex_colors.active.data;
+      fc = face_colors[face_id];
+      vertices[0].c = [];
+      vertices[0].c .extend(fc.color1);
+      vertices[0].c .append(1.0);
+      vertices[1].c = [];
+      vertices[1].c .extend(fc.color2);
+      vertices[1].c.append(1.0);
+      vertices[2].c = [];
+      vertices[2].c.extend(fc.color3);
+      vertices[2].c.append(1.0);
+    }
+
     // Collect what we need from loops & faces
     for (j, v in enumerate(vertices)) {
 
@@ -63,19 +78,7 @@ def extract_meshdata(src_mesh, src_geometry, material_index, export_tangents,rem
         v.tx[tx_id].extend(src_mesh.tessface_uv_textures[tx_id].data[i].uv[j]);
       }
 
-      // Collect colors if set
-      if (len(src_mesh.tessface_vertex_colors) >= 1) {
-        face_colors = src_mesh.tessface_vertex_colors.active.data;
-        fc = face_colors[f.index];
-        colors = [];
-        v.c = colors;
-        colors.extend(fc.color1);
-        colors.append(1.0);
-        colors.extend(fc.color2);
-        colors.append(1.0);
-        colors.extend(fc.color3);
-        colors.append(1.0);
-      }
+  
 
       if (remove_doubles) {
         try {
